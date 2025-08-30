@@ -4,5 +4,4 @@ docker
 PyGithub
 requests
 python-dotenv
-supabase
 github3.py

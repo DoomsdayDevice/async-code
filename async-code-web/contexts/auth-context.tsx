@@ -1,68 +1,69 @@
-'use client'
+"use client";
 
-import React, { createContext, useContext, useEffect, useState } from 'react'
-import { User, Session } from '@supabase/supabase-js'
-import { getSupabase } from '@/lib/supabase'
+import React, { createContext, useContext, useEffect, useState } from "react";
 
-interface AuthContextType {
-    user: User | null
-    session: Session | null
-    loading: boolean
-    signOut: () => Promise<void>
+interface LocalUser {
+    id: string;
+    email?: string;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+interface AuthContextType {
+    user: LocalUser | null;
+    loading: boolean;
+    signOut: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function useAuth() {
-    const context = useContext(AuthContext)
+    const context = useContext(AuthContext);
     if (context === undefined) {
-        throw new Error('useAuth must be used within an AuthProvider')
+        throw new Error("useAuth must be used within an AuthProvider");
     }
-    return context
+    return context;
 }
 
 interface AuthProviderProps {
-    children: React.ReactNode
+    children: React.ReactNode;
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-    const [user, setUser] = useState<User | null>(null)
-    const [session, setSession] = useState<Session | null>(null)
-    const [loading, setLoading] = useState(true)
+    const [user, setUser] = useState<LocalUser | null>(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const supabase = getSupabase()
-        
-        // Get initial session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session)
-            setUser(session?.user ?? null)
-            setLoading(false)
-        })
-
-        // Listen for auth changes
-        const {
-            data: { subscription },
-        } = supabase.auth.onAuthStateChange(async (event, session) => {
-            setSession(session)
-            setUser(session?.user ?? null)
-            setLoading(false)
-        })
-
-        return () => subscription.unsubscribe()
-    }, [])
+        // Use a local storage based user for now
+        const storedId = typeof window !== "undefined" ? localStorage.getItem("user-id") : null;
+        let localUser: LocalUser | null = null;
+        if (storedId) {
+            localUser = { id: storedId };
+        } else {
+            // Generate and persist a simple local user id
+            const newId = crypto.randomUUID();
+            if (typeof window !== "undefined") {
+                localStorage.setItem("user-id", newId);
+            }
+            localUser = { id: newId };
+        }
+        setUser(localUser);
+        setLoading(false);
+    }, []);
 
     const signOut = async () => {
-        const supabase = getSupabase()
-        await supabase.auth.signOut()
-    }
+        if (typeof window !== "undefined") {
+            localStorage.removeItem("user-id");
+            // Recreate a fresh user id immediately for simplicity
+            const newId = crypto.randomUUID();
+            localStorage.setItem("user-id", newId);
+            setUser({ id: newId });
+        }
+    };
 
     const value = {
         user,
-        session,
         loading,
         signOut,
-    }
+    };
 
-    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-} 
+    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}

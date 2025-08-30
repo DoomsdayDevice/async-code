@@ -1,18 +1,25 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { SupabaseService } from "@/lib/supabase-service";
-import { User } from "@/types";
+import { ApiService } from "@/lib/api-service";
+import { useAuth } from "@/contexts/auth-context";
 
 export function useUserProfile() {
-    const [profile, setProfile] = useState<User | null>(null);
+    const { user } = useAuth();
+    const [profile, setProfile] = useState<any | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<Error | null>(null);
 
     const fetchProfile = useCallback(async () => {
         try {
             setIsLoading(true);
-            const data = await SupabaseService.getUserProfile();
+            if (!user?.id) {
+                setProfile(null);
+                setError(null);
+                setIsLoading(false);
+                return;
+            }
+            const data = await ApiService.getCurrentUser(user.id);
             setProfile(data);
             setError(null);
         } catch (err) {
@@ -21,7 +28,7 @@ export function useUserProfile() {
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [user?.id]);
 
     useEffect(() => {
         fetchProfile();

@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, Save, Key, Settings2 } from "lucide-react";
 import { toast } from "sonner";
-import { SupabaseService } from "@/lib/supabase-service";
+import { ApiService } from "@/lib/api-service";
+import { useAuth } from "@/contexts/auth-context";
 import { useUserProfile } from "@/hooks/useUserProfile";
 
 interface CodeAgentConfig {
@@ -41,10 +42,10 @@ const DEFAULT_CODEX_ENV = {
 
 // Helper function to check if credentials is meaningful (not empty/null/undefined)
 const hasMeaningfulCredentials = (creds: any): boolean => {
-    if (!creds || creds === null || creds === undefined || creds === '') {
+    if (!creds || creds === null || creds === undefined || creds === "") {
         return false;
     }
-    if (typeof creds === 'object' && Object.keys(creds).length === 0) {
+    if (typeof creds === "object" && Object.keys(creds).length === 0) {
         return false;
     }
     return true;
@@ -52,21 +53,22 @@ const hasMeaningfulCredentials = (creds: any): boolean => {
 
 export function CodeAgentSettings() {
     const { profile, refreshProfile } = useUserProfile();
+    const { user } = useAuth();
     const [claudeEnv, setClaudeEnv] = useState("");
     const [claudeCredentials, setClaudeCredentials] = useState("");
     const [codexEnv, setCodexEnv] = useState("");
     const [isLoading, setIsLoading] = useState(false);
-    const [errors, setErrors] = useState<{ 
-        claudeEnv?: string; 
-        claudeCredentials?: string; 
-        codexEnv?: string; 
+    const [errors, setErrors] = useState<{
+        claudeEnv?: string;
+        claudeCredentials?: string;
+        codexEnv?: string;
     }>({});
 
     // Load settings from profile on mount
     useEffect(() => {
         if (profile?.preferences) {
             const prefs = profile.preferences as any; // Use any for backward compatibility
-            
+
             // Handle backward compatibility for Claude config
             let claudeConfig: any = {};
             if (prefs.claudeCode) {
@@ -76,15 +78,15 @@ export function CodeAgentSettings() {
                 } else {
                     // Old structure - migrate to new format
                     const { credentials, ...envVars } = prefs.claudeCode;
-                    
+
                     claudeConfig = {
                         env: envVars,
-                        credentials: hasMeaningfulCredentials(credentials) ? credentials : null
+                        credentials: hasMeaningfulCredentials(credentials) ? credentials : null,
                     };
                 }
             }
-            
-            // Handle backward compatibility for Codex config  
+
+            // Handle backward compatibility for Codex config
             let codexConfig: any = {};
             if (prefs.codex) {
                 // Check if it's the new structure
@@ -98,7 +100,7 @@ export function CodeAgentSettings() {
                 // Old codexCLI key - migrate to new codex key
                 codexConfig = { env: prefs.codexCLI };
             }
-            
+
             setClaudeEnv(JSON.stringify(claudeConfig.env || DEFAULT_CLAUDE_ENV, null, 2));
             setClaudeCredentials(JSON.stringify(claudeConfig.credentials || DEFAULT_CLAUDE_CREDENTIALS, null, 2));
             setCodexEnv(JSON.stringify(codexConfig.env || DEFAULT_CODEX_ENV, null, 2));
@@ -112,10 +114,10 @@ export function CodeAgentSettings() {
     const validateJSON = (value: string, key: string) => {
         try {
             JSON.parse(value);
-            setErrors(prev => ({ ...prev, [key]: undefined }));
+            setErrors((prev) => ({ ...prev, [key]: undefined }));
             return true;
         } catch (e) {
-            setErrors(prev => ({ ...prev, [key]: "Invalid JSON format" }));
+            setErrors((prev) => ({ ...prev, [key]: "Invalid JSON format" }));
             return false;
         }
     };
@@ -149,23 +151,24 @@ export function CodeAgentSettings() {
 
             // Merge with existing preferences if any
             const existingPrefs = (profile?.preferences || {}) as Record<string, any>;
-            
+
             // Clean up old keys during migration
             const { codexCLI, ...cleanedPrefs } = existingPrefs;
-            
+
             const mergedPrefs = {
                 ...cleanedPrefs,
                 ...preferences,
             };
 
-            await SupabaseService.updateUserProfile({ preferences: mergedPrefs });
+            if (!user?.id) throw new Error("No user");
+            await ApiService.updateUserProfile(user.id, { preferences: mergedPrefs });
             await refreshProfile();
-            
+
             // Provide feedback about credentials handling
-            const credentialsMessage = hasMeaningfulCredentials(claudeCredentialsConfig) 
-                ? "Claude credentials will be configured" 
+            const credentialsMessage = hasMeaningfulCredentials(claudeCredentialsConfig)
+                ? "Claude credentials will be configured"
                 : "Claude credentials are empty and will be skipped";
-            
+
             toast.success(`Code agent settings saved successfully. ${credentialsMessage}`);
         } catch (error) {
             console.error("Failed to save settings:", error);
@@ -188,7 +191,8 @@ export function CodeAgentSettings() {
                     <Alert>
                         <AlertCircle className="h-4 w-4" />
                         <AlertDescription>
-                            <strong>Important:</strong> Environment variables and credentials are stored separately. Store sensitive API keys in environment variables, and authentication configs in credentials.
+                            <strong>Important:</strong> Environment variables and credentials are stored separately. Store sensitive API keys in environment
+                            variables, and authentication configs in credentials.
                         </AlertDescription>
                     </Alert>
 
@@ -198,7 +202,7 @@ export function CodeAgentSettings() {
                             <Settings2 className="w-5 h-5 text-blue-600" />
                             <h3 className="text-lg font-semibold">Claude Code Configuration</h3>
                         </div>
-                        
+
                         {/* Claude Environment Variables */}
                         <div className="space-y-2">
                             <Label htmlFor="claude-env" className="flex items-center gap-2">
@@ -219,12 +223,8 @@ export function CodeAgentSettings() {
                                     placeholder={JSON.stringify(DEFAULT_CLAUDE_ENV, null, 2)}
                                 />
                             </div>
-                            {errors.claudeEnv && (
-                                <p className="text-sm text-red-500 mt-1">{errors.claudeEnv}</p>
-                            )}
-                            <p className="text-sm text-muted-foreground">
-                                Configure environment variables for Claude Code CLI (@anthropic-ai/claude-code)
-                            </p>
+                            {errors.claudeEnv && <p className="text-sm text-red-500 mt-1">{errors.claudeEnv}</p>}
+                            <p className="text-sm text-muted-foreground">Configure environment variables for Claude Code CLI (@anthropic-ai/claude-code)</p>
                         </div>
 
                         {/* Claude Credentials */}
@@ -247,9 +247,7 @@ export function CodeAgentSettings() {
                                     placeholder={JSON.stringify(DEFAULT_CLAUDE_CREDENTIALS, null, 2)}
                                 />
                             </div>
-                            {errors.claudeCredentials && (
-                                <p className="text-sm text-red-500 mt-1">{errors.claudeCredentials}</p>
-                            )}
+                            {errors.claudeCredentials && <p className="text-sm text-red-500 mt-1">{errors.claudeCredentials}</p>}
                             <p className="text-sm text-muted-foreground">
                                 Configure authentication credentials for Claude Code CLI (will be saved to ~/.claude/.credentials.json)
                             </p>
@@ -262,7 +260,7 @@ export function CodeAgentSettings() {
                             <Settings2 className="w-5 h-5 text-green-600" />
                             <h3 className="text-lg font-semibold">Codex CLI Configuration</h3>
                         </div>
-                        
+
                         {/* Codex Environment Variables */}
                         <div className="space-y-2">
                             <Label htmlFor="codex-env" className="flex items-center gap-2">
@@ -283,17 +281,14 @@ export function CodeAgentSettings() {
                                     placeholder={JSON.stringify(DEFAULT_CODEX_ENV, null, 2)}
                                 />
                             </div>
-                            {errors.codexEnv && (
-                                <p className="text-sm text-red-500 mt-1">{errors.codexEnv}</p>
-                            )}
-                            <p className="text-sm text-muted-foreground">
-                                Configure environment variables for Codex CLI (@openai/codex)
-                            </p>
+                            {errors.codexEnv && <p className="text-sm text-red-500 mt-1">{errors.codexEnv}</p>}
+                            <p className="text-sm text-muted-foreground">Configure environment variables for Codex CLI (@openai/codex)</p>
                         </div>
-                        
+
                         <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md">
                             <p className="text-sm text-yellow-800">
-                                <strong>Note:</strong> Codex CLI does not require separate credentials configuration. All settings are handled via environment variables.
+                                <strong>Note:</strong> Codex CLI does not require separate credentials configuration. All settings are handled via environment
+                                variables.
                             </p>
                         </div>
                     </div>

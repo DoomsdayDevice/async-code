@@ -1,0 +1,54 @@
+# Node modules and caches
+node_modules
+**/node_modules
+npm-cache
+**/npm-cache
+
+# Lock files
+package-lock.json
+**/package-lock.json
+yarn.lock
+**/yarn.lock
+pnpm-lock.yaml
+**/pnpm-lock.yaml
+
+# Env files
+.env
+**/.env
+.env.local
+**/.env.local
+
+# Build outputs
+.next
+**/.next
+out
+**/out
+build
+**/build
+coverage
+**/coverage
+
+# VCS and editor junk
+.git
+**/.git
+.gitignore
+**/.gitignore
+.DS_Store
+**/.DS_Store
+.vscode
+**/.vscode
+
+# Unrelated project areas for frontend build
+server
+**/server
+*.db
+**/*.db
+venv
+**/venv
+
+# Logs
+logs
+**/logs
+npm-debug.log*
+**/npm-debug.log*
+.data

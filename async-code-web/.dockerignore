@@ -1,0 +1,17 @@
+# Игнорируем тяжёлые и локальные артефакты при сборке фронтенда
+node_modules
+npm-cache
+.next
+out
+build
+coverage
+
+# Файлы окружения
+.env
+.env.local
+
+# Служебные каталоги
+.git
+.vscode
+.DS_Store
+

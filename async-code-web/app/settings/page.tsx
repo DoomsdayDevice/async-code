@@ -10,21 +10,25 @@ import { toast } from "sonner";
 import { CodeAgentSettings } from "@/components/code-agent-settings";
 
 import Link from "next/link";
+import { API_BASE } from "@/lib/config";
 
 export default function SettingsPage() {
     const [githubToken, setGithubToken] = useState("");
-    const [tokenValidation, setTokenValidation] = useState<{status: string; user?: string; repo?: {name?: string; permissions?: {read?: boolean; write?: boolean; create_branches?: boolean; admin?: boolean}}; error?: string} | null>(null);
+    const [tokenValidation, setTokenValidation] = useState<{
+        status: string;
+        user?: string;
+        repo?: { name?: string; permissions?: { read?: boolean; write?: boolean; create_branches?: boolean; admin?: boolean } };
+        error?: string;
+    } | null>(null);
     const [isValidatingToken, setIsValidatingToken] = useState(false);
     const [repoUrl, setRepoUrl] = useState("https://github.com/ObservedObserver/streamlit-react");
 
-    const API_BASE = typeof window !== 'undefined' && window.location.hostname === 'localhost' 
-        ? 'http://localhost:5000' 
-        : '/api';
+    // API_BASE передается из настроек окружения через '@/lib/config'
 
     // Initialize GitHub token from localStorage
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const savedToken = localStorage.getItem('github-token');
+        if (typeof window !== "undefined") {
+            const savedToken = localStorage.getItem("github-token");
             if (savedToken) {
                 setGithubToken(savedToken);
             }
@@ -33,59 +37,61 @@ export default function SettingsPage() {
 
     // Save GitHub token to localStorage whenever it changes
     useEffect(() => {
-        if (typeof window !== 'undefined') {
+        if (typeof window !== "undefined") {
             if (githubToken.trim()) {
-                localStorage.setItem('github-token', githubToken);
+                localStorage.setItem("github-token", githubToken);
             } else {
-                localStorage.removeItem('github-token');
+                localStorage.removeItem("github-token");
             }
         }
     }, [githubToken]);
 
     const handleValidateToken = async () => {
         if (!githubToken.trim() || !repoUrl.trim()) {
-            toast.error('Please provide both GitHub token and repository URL');
+            toast.error("Please provide both GitHub token and repository URL");
             return;
         }
 
         setIsValidatingToken(true);
         try {
             const response = await fetch(`${API_BASE}/validate-token`, {
-                method: 'POST',
+                method: "POST",
                 headers: {
-                    'Content-Type': 'application/json',
+                    "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
                     github_token: githubToken,
-                    repo_url: repoUrl
-                })
+                    repo_url: repoUrl,
+                }),
             });
 
             const data = await response.json();
             setTokenValidation(data);
-            
-            if (data.status === 'success') {
+
+            if (data.status === "success") {
                 const permissions = data.repo?.permissions || {};
                 const permissionSummary = [
                     `User: ${data.user}`,
-                    `Repo: ${data.repo?.name || 'N/A'}`,
-                    `Read: ${permissions.read ? 'Yes' : 'No'}`,
-                    `Write: ${permissions.write ? 'Yes' : 'No'}`,
-                    `Create Branches: ${permissions.create_branches ? 'Yes' : 'No'}`,
-                    `Admin: ${permissions.admin ? 'Yes' : 'No'}`
-                ].join('\n');
-                
+                    `Repo: ${data.repo?.name || "N/A"}`,
+                    `Read: ${permissions.read ? "Yes" : "No"}`,
+                    `Write: ${permissions.write ? "Yes" : "No"}`,
+                    `Create Branches: ${permissions.create_branches ? "Yes" : "No"}`,
+                    `Admin: ${permissions.admin ? "Yes" : "No"}`,
+                ].join("\n");
+
                 if (permissions.create_branches) {
                     toast.success(`✅ Token is fully valid for PR creation!\n\n${permissionSummary}`);
                 } else {
-                    toast.warning(`⚠️ Token validation partial success!\n\n${permissionSummary}\n\n❌ Cannot create branches - this will prevent PR creation.\nPlease ensure your token has 'repo' scope (not just 'public_repo').`);
+                    toast.warning(
+                        `⚠️ Token validation partial success!\n\n${permissionSummary}\n\n❌ Cannot create branches - this will prevent PR creation.\nPlease ensure your token has 'repo' scope (not just 'public_repo').`
+                    );
                 }
             } else {
                 toast.error(`❌ Token validation failed: ${data.error}`);
             }
         } catch (error) {
             toast.error(`Error validating token: ${error}`);
-            setTokenValidation({ status: 'error', error: String(error) });
+            setTokenValidation({ status: "error", error: String(error) });
         } finally {
             setIsValidatingToken(false);
         }
@@ -124,9 +130,7 @@ export default function SettingsPage() {
                                 <Github className="w-5 h-5" />
                                 GitHub Authentication
                             </CardTitle>
-                            <CardDescription>
-                                Configure your GitHub Personal Access Token to enable repository access and PR creation
-                            </CardDescription>
+                            <CardDescription>Configure your GitHub Personal Access Token to enable repository access and PR creation</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
                             <div className="space-y-2">
@@ -146,8 +150,8 @@ export default function SettingsPage() {
                                     <div className="flex items-start gap-2 text-blue-800">
                                         <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
                                         <div className="text-sm">
-                                                                                    Your token is stored locally in your browser and is required for repository access and PR creation.
-                                        Make sure your token has the <strong>repo</strong> scope for full functionality.
+                                            Your token is stored locally in your browser and is required for repository access and PR creation. Make sure your
+                                            token has the <strong>repo</strong> scope for full functionality.
                                         </div>
                                     </div>
                                 </div>
@@ -163,9 +167,7 @@ export default function SettingsPage() {
                                     onChange={(e) => setRepoUrl(e.target.value)}
                                     placeholder="https://github.com/owner/repo"
                                 />
-                                <p className="text-sm text-slate-600">
-                                    Use any accessible repository to test your token&apos;s permissions
-                                </p>
+                                <p className="text-sm text-slate-600">Use any accessible repository to test your token&apos;s permissions</p>
                             </div>
 
                             {/* Validation Section */}
@@ -178,11 +180,11 @@ export default function SettingsPage() {
                                         className="gap-2"
                                     >
                                         <CheckCircle className="w-4 h-4" />
-                                        {isValidatingToken ? 'Validating...' : 'Test Token'}
+                                        {isValidatingToken ? "Validating..." : "Test Token"}
                                     </Button>
                                     {tokenValidation && (
                                         <div className="flex items-center gap-2">
-                                            {tokenValidation.status === 'success' ? (
+                                            {tokenValidation.status === "success" ? (
                                                 <div className="flex items-center gap-1 text-sm text-green-600">
                                                     <CheckCircle className="w-4 h-4" />
                                                     Valid Token
@@ -197,7 +199,7 @@ export default function SettingsPage() {
                                     )}
                                 </div>
 
-                                {tokenValidation && tokenValidation.status === 'success' && (
+                                {tokenValidation && tokenValidation.status === "success" && (
                                     <Card className="bg-green-50 border-green-200">
                                         <CardContent className="pt-6">
                                             <div className="space-y-2">
@@ -206,15 +208,19 @@ export default function SettingsPage() {
                                                     <span className="font-medium">Token Validated Successfully</span>
                                                 </div>
                                                 <div className="text-sm text-green-700">
-                                                    <div>User: <strong>{tokenValidation.user}</strong></div>
-                                                    <div>Repository: <strong>{tokenValidation.repo?.name || 'N/A'}</strong></div>
+                                                    <div>
+                                                        User: <strong>{tokenValidation.user}</strong>
+                                                    </div>
+                                                    <div>
+                                                        Repository: <strong>{tokenValidation.repo?.name || "N/A"}</strong>
+                                                    </div>
                                                     <div className="mt-2">
                                                         <strong>Permissions:</strong>
                                                         <ul className="ml-4 mt-1 space-y-1">
-                                                            <li>Read: {tokenValidation.repo?.permissions?.read ? '✅' : '❌'}</li>
-                                                            <li>Write: {tokenValidation.repo?.permissions?.write ? '✅' : '❌'}</li>
-                                                            <li>Create Branches: {tokenValidation.repo?.permissions?.create_branches ? '✅' : '❌'}</li>
-                                                            <li>Admin: {tokenValidation.repo?.permissions?.admin ? '✅' : '❌'}</li>
+                                                            <li>Read: {tokenValidation.repo?.permissions?.read ? "✅" : "❌"}</li>
+                                                            <li>Write: {tokenValidation.repo?.permissions?.write ? "✅" : "❌"}</li>
+                                                            <li>Create Branches: {tokenValidation.repo?.permissions?.create_branches ? "✅" : "❌"}</li>
+                                                            <li>Admin: {tokenValidation.repo?.permissions?.admin ? "✅" : "❌"}</li>
                                                         </ul>
                                                     </div>
                                                 </div>
@@ -223,7 +229,7 @@ export default function SettingsPage() {
                                     </Card>
                                 )}
 
-                                {tokenValidation && tokenValidation.status === 'error' && (
+                                {tokenValidation && tokenValidation.status === "error" && (
                                     <div className="p-3 bg-red-50 border border-red-200 rounded-md">
                                         <div className="flex items-start gap-2 text-red-800">
                                             <Shield className="h-4 w-4 mt-0.5 flex-shrink-0" />
@@ -257,11 +263,15 @@ export default function SettingsPage() {
                                 </div>
                                 <div>
                                     <strong>3. Required Scopes</strong>
-                                    <p className="text-blue-700 ml-4">Select the <strong>repo</strong> scope for full repository access (including private repositories)</p>
+                                    <p className="text-blue-700 ml-4">
+                                        Select the <strong>repo</strong> scope for full repository access (including private repositories)
+                                    </p>
                                 </div>
                                 <div>
                                     <strong>4. Copy and Save</strong>
-                                    <p className="text-blue-700 ml-4">Copy the generated token immediately and paste it above (you won&apos;t be able to see it again)</p>
+                                    <p className="text-blue-700 ml-4">
+                                        Copy the generated token immediately and paste it above (you won&apos;t be able to see it again)
+                                    </p>
                                 </div>
                             </div>
                         </CardContent>
@@ -270,4 +280,4 @@ export default function SettingsPage() {
             </main>
         </div>
     );
-} 
+}

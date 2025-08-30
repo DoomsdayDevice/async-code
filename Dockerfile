@@ -4,6 +4,9 @@ FROM node:20.9.0-alpine
 # Set the working directory inside the container
 WORKDIR /app
 
+# Отключаем телеметрию Next.js в окружении контейнера
+ENV NEXT_TELEMETRY_DISABLED=1
+
 # Install system dependencies that might be needed
 RUN apk add --no-cache \
     bash \
@@ -14,17 +17,14 @@ RUN apk add --no-cache \
 # Install claude-code globally
 RUN npm install -g @anthropic-ai/claude-code
 
-# Copy package files first (for better Docker layer caching)
-COPY async-code-web/package*.json ./
+# Copy only package.json first (avoid copying lock files)
+COPY async-code-web/package.json ./
 
 # Install Node.js dependencies
 RUN npm install
 
 # Copy the rest of the application code
 COPY async-code-web/ .
-
-# Copy the setup script
-COPY setup.sh ./setup.sh
 
 # Make the setup script executable
 RUN chmod +x ./setup.sh

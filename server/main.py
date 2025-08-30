@@ -11,6 +11,7 @@ load_dotenv()
 from tasks import tasks_bp
 from projects import projects_bp
 from health import health_bp
+from users import users_bp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,12 +20,14 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Configure CORS
-CORS(app, origins=['http://localhost:3000', 'https://*.vercel.app'])
+# Allow local dev ports
+CORS(app, origins=['http://localhost:3000', 'http://localhost:9020', 'https://*.vercel.app'])
 
 # Register blueprints
 app.register_blueprint(health_bp)
 app.register_blueprint(tasks_bp)
 app.register_blueprint(projects_bp)
+app.register_blueprint(users_bp)
 
 @app.errorhandler(404)
 def not_found(error):

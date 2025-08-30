@@ -30,7 +30,6 @@ A code agent task management system that provides parallel execution of AI-power
 ## Prerequisites
 
 - Docker and Docker Compose installed
-- (Optional) Supabase account for persistent data storage
 
 ## Quick Start
 
@@ -40,25 +39,29 @@ A code agent task management system that provides parallel execution of AI-power
    cd async-code
    ```
 
-2. **Create the environment file**
+2. **Create the environment file (backend)**
    ```bash
    cp server/.env.example server/.env
    ```
-   Edit `server/.env` and set your `ANTHROPIC_API_KEY`. If you are using Supabase, also set `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`.
+   Edit `server/.env` and set your `ANTHROPIC_API_KEY`.
 
-3. **Build and start the stack**
+3. (Optional) **Frontend environment file**
+   ```bash
+   # Not required for SQLite mode; frontend talks to local Flask API
+   # cp async-code-web/.env.example async-code-web/.env
+   ```
+
+4. **Build and start the stack**
    ```bash
    docker-compose up --build -d
    ```
 
-   - Frontend: http://localhost:3000
+   - Frontend: http://localhost:9020
    - Backend API: http://localhost:5000
 
-## Supabase Setup
+## Storage
 
-1. Create a new project in the [Supabase](https://supabase.com) dashboard.
-2. Open the SQL editor and run `db/init_supabase.sql` to create the required tables.
-3. Grab your project URL, anon key and service role key from **Project Settings → API** and place them in `server/.env`.
+The app uses SQLite by default (`server/server_local.db`). No external DB or Supabase is required.
 
 ## Usage
 
@@ -74,11 +77,6 @@ A code agent task management system that provides parallel execution of AI-power
 ```bash
 # server/.env
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
-
-# Supabase
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 
 # Flask configuration
 FLASK_ENV=production

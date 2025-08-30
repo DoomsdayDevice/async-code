@@ -1,14 +1,16 @@
-version: '3.8'
+version: "3.8"
 
 services:
   frontend:
     build:
-      context: .
+      context: ./async-code-web
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "9020:3000"
     environment:
       - NODE_ENV=development
+    env_file:
+      - ./async-code-web/.env
     volumes:
       - ./async-code-web:/app
       - /app/node_modules
@@ -20,7 +22,7 @@ services:
       context: ./server
       dockerfile: Dockerfile
     ports:
-      - "5000:5000"
+      - "9010:5000"
     environment:
       - FLASK_ENV=development
       - FLASK_DEBUG=True
@@ -28,6 +30,7 @@ services:
       - ./server/.env
     volumes:
       - ./server:/app
+      - ./server/.data:/app/.data
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - claude-automation-build
