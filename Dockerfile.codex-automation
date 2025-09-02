@@ -7,7 +7,8 @@ RUN apk add --no-cache \
     curl \
     openssh-client \
     python3 \
-    py3-pip
+    py3-pip \
+    util-linux
 
 # Install Codex CLI globally
 # Requires Node.js 22+ according to their documentation

@@ -302,7 +302,7 @@ if [ "{model_cli}" = "codex" ]; then
     echo "CODEX_QUIET_MODE: $CODEX_QUIET_MODE"
     echo "CODEX_UNSAFE_ALLOW_NO_SANDBOX: $CODEX_UNSAFE_ALLOW_NO_SANDBOX"
     echo "OPENAI_API_KEY: $(echo $OPENAI_API_KEY | head -c 8)..."
-    echo "Invoking Codex CLI without unsupported flags"
+    echo "Invoking Codex CLI via pseudo-TTY wrapper (script)"
     echo "======================="
     
     # Read the prompt from file
@@ -314,11 +314,11 @@ if [ "{model_cli}" = "codex" ]; then
         echo "Running Codex in non-interactive mode..."
         # Temporarily allow capturing non-zero exit for retries
         set +e
-        /usr/local/bin/codex "$PROMPT_TEXT"
+        script -qec "/usr/local/bin/codex \"$PROMPT_TEXT\"" /dev/null
         CODEX_EXIT_CODE=$?
         if [ $CODEX_EXIT_CODE -ne 0 ]; then
             echo "First invocation failed ($CODEX_EXIT_CODE), trying stdin pipe..."
-            echo "$PROMPT_TEXT" | /usr/local/bin/codex
+            script -qec "echo \"$PROMPT_TEXT\" | /usr/local/bin/codex" /dev/null
             CODEX_EXIT_CODE=$?
         fi
         set -e
@@ -333,11 +333,11 @@ if [ "{model_cli}" = "codex" ]; then
         echo "Using codex from PATH..."
         echo "Running Codex in non-interactive mode..."
         set +e
-        codex "$PROMPT_TEXT"
+        script -qec "codex \"$PROMPT_TEXT\"" /dev/null
         CODEX_EXIT_CODE=$?
         if [ $CODEX_EXIT_CODE -ne 0 ]; then
             echo "First invocation failed ($CODEX_EXIT_CODE), trying stdin pipe..."
-            echo "$PROMPT_TEXT" | codex
+            script -qec "echo \"$PROMPT_TEXT\" | codex" /dev/null
             CODEX_EXIT_CODE=$?
         fi
         set -e
@@ -547,8 +547,8 @@ exit 0
             'remove': False,  # Don't auto-remove so we can get logs
             'working_dir': '/workspace',
             'network_mode': 'bridge',  # Ensure proper networking
-            'tty': False,  # Default: no TTY (overridden for Codex below)
-            'stdin_open': False,  # Default: no open stdin (overridden for Codex below)
+            'tty': False,  # Don't allocate TTY - may prevent clean exit
+            'stdin_open': False,  # Don't keep stdin open - may prevent clean exit
             'name': f'ai-code-task-{task_id}-{int(time.time())}-{uuid.uuid4().hex[:8]}',  # Highly unique container name with UUID
             'mem_limit': '2g',  # Limit memory usage to prevent resource conflicts
             'cpu_shares': 1024,  # Standard CPU allocation
@@ -569,10 +569,6 @@ exit 0
                 'privileged': True,            # Run in fully privileged mode
                 'pid_mode': 'host'            # Share host PID namespace
             })
-            # Allocate a TTY and open stdin for Codex CLI to avoid /dev/tty errors in non-interactive environments
-            # Некоторые версии Codex пытаются читать из /dev/tty; без псевдо-TTY это приводит к "os error 6"
-            container_kwargs['tty'] = True
-            container_kwargs['stdin_open'] = True
         
         # Retry container creation with enhanced conflict handling
         container = None
