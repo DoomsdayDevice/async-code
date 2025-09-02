@@ -169,7 +169,8 @@ def _run_ai_code_task_v2_internal(task_id: int, user_id: str, github_token: str)
                 'CODEX_QUIET_MODE': '1',  # Official Codex non-interactive flag
                 'CODEX_UNSAFE_ALLOW_NO_SANDBOX': '1',  # Disable Codex internal sandboxing to prevent Docker conflicts
                 'CODEX_DISABLE_SANDBOX': '1',  # Alternative sandbox disable flag
-                'CODEX_NO_SANDBOX': '1'  # Another potential sandbox disable flag
+                'CODEX_NO_SANDBOX': '1',  # Another potential sandbox disable flag
+                'TERM': 'xterm'  # Provide reasonable TERM for TTY
             }
             # Merge with user's custom Codex environment variables
             codex_config = user_preferences.get('codex', {})
@@ -302,7 +303,7 @@ if [ "{model_cli}" = "codex" ]; then
     echo "CODEX_QUIET_MODE: $CODEX_QUIET_MODE"
     echo "CODEX_UNSAFE_ALLOW_NO_SANDBOX: $CODEX_UNSAFE_ALLOW_NO_SANDBOX"
     echo "OPENAI_API_KEY: $(echo $OPENAI_API_KEY | head -c 8)..."
-    echo "Invoking Codex CLI via pseudo-TTY wrapper (script)"
+    echo "Invoking Codex CLI directly (TTY allocated at container level)"
     echo "======================="
     # Ensure a reasonable TERM for tools that check TTY capabilities
     export TERM=xterm
@@ -316,12 +317,11 @@ if [ "{model_cli}" = "codex" ]; then
         echo "Running Codex in non-interactive mode..."
         # Temporarily allow capturing non-zero exit for retries
         set +e
-        # Use BusyBox-compatible form: script -q FILE COMMAND ARGS...
-        script -q /dev/null /bin/sh -c "/usr/local/bin/codex \"$PROMPT_TEXT\""
+        /usr/local/bin/codex "$PROMPT_TEXT"
         CODEX_EXIT_CODE=$?
         if [ $CODEX_EXIT_CODE -ne 0 ]; then
             echo "First invocation failed ($CODEX_EXIT_CODE), trying stdin pipe..."
-            script -q /dev/null /bin/sh -c "printf %s \"$PROMPT_TEXT\" | /usr/local/bin/codex"
+            printf %s "$PROMPT_TEXT" | /usr/local/bin/codex
             CODEX_EXIT_CODE=$?
         fi
         set -e
@@ -336,11 +336,11 @@ if [ "{model_cli}" = "codex" ]; then
         echo "Using codex from PATH..."
         echo "Running Codex in non-interactive mode..."
         set +e
-        script -q /dev/null /bin/sh -c "codex \"$PROMPT_TEXT\""
+        codex "$PROMPT_TEXT"
         CODEX_EXIT_CODE=$?
         if [ $CODEX_EXIT_CODE -ne 0 ]; then
             echo "First invocation failed ($CODEX_EXIT_CODE), trying stdin pipe..."
-            script -q /dev/null /bin/sh -c "printf %s \"$PROMPT_TEXT\" | codex"
+            printf %s "$PROMPT_TEXT" | codex
             CODEX_EXIT_CODE=$?
         fi
         set -e
@@ -550,8 +550,8 @@ exit 0
             'remove': False,  # Don't auto-remove so we can get logs
             'working_dir': '/workspace',
             'network_mode': 'bridge',  # Ensure proper networking
-            'tty': False,  # Don't allocate TTY - may prevent clean exit
-            'stdin_open': False,  # Don't keep stdin open - may prevent clean exit
+            'tty': False,  # Default: no TTY (override for Codex)
+            'stdin_open': False,  # Default: stdin closed (override for Codex)
             'name': f'ai-code-task-{task_id}-{int(time.time())}-{uuid.uuid4().hex[:8]}',  # Highly unique container name with UUID
             'mem_limit': '2g',  # Limit memory usage to prevent resource conflicts
             'cpu_shares': 1024,  # Standard CPU allocation
@@ -572,6 +572,9 @@ exit 0
                 'privileged': True,            # Run in fully privileged mode
                 'pid_mode': 'host'            # Share host PID namespace
             })
+            # Allocate TTY and open stdin for Codex to satisfy /dev/tty access
+            container_kwargs['tty'] = True
+            container_kwargs['stdin_open'] = True
         
         # Retry container creation with enhanced conflict handling
         container = None
