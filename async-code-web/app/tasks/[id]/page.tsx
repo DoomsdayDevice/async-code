@@ -2,7 +2,21 @@
 
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Github, Clock, CheckCircle, XCircle, AlertCircle, GitCommit, FileText, ExternalLink, MessageSquare, Plus, Copy, Loader2 } from "lucide-react";
+import {
+    ArrowLeft,
+    Github,
+    Clock,
+    CheckCircle,
+    XCircle,
+    AlertCircle,
+    GitCommit,
+    FileText,
+    ExternalLink,
+    MessageSquare,
+    Plus,
+    Copy,
+    Loader2,
+} from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,28 +33,29 @@ import { DiffViewer } from "@/components/diff-viewer";
 import { toast } from "sonner";
 
 interface TaskWithProject extends Task {
-    project?: Project
+    project?: Project;
 }
 
 export default function TaskDetailPage() {
     const { user } = useAuth();
     const params = useParams();
     const taskId = parseInt(params.id as string);
-    
+
     const [task, setTask] = useState<TaskWithProject | null>(null);
     const [loading, setLoading] = useState(true);
     const [gitDiff, setGitDiff] = useState("");
     const [diffStats, setDiffStats] = useState({ additions: 0, deletions: 0, files: 0 });
     const [newMessage, setNewMessage] = useState("");
     const [githubToken, setGithubToken] = useState("");
+    const [gitlabToken, setGitlabToken] = useState("");
     const [creatingPR, setCreatingPR] = useState(false);
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const savedToken = localStorage.getItem('github-token');
-            if (savedToken) {
-                setGithubToken(savedToken);
-            }
+        if (typeof window !== "undefined") {
+            const savedToken = localStorage.getItem("github-token");
+            if (savedToken) setGithubToken(savedToken);
+            const savedGitlab = localStorage.getItem("gitlab-token");
+            if (savedGitlab) setGitlabToken(savedGitlab);
         }
     }, []);
 
@@ -57,7 +72,7 @@ export default function TaskDetailPage() {
         const interval = setInterval(async () => {
             try {
                 const updatedTask = await ApiService.getTaskStatus(user.id, taskId);
-                setTask(prev => ({ ...prev, ...updatedTask }));
+                setTask((prev) => ({ ...prev, ...updatedTask }));
 
                 // Fetch git diff if task completed
                 if (updatedTask.status === "completed" && !gitDiff) {
@@ -67,11 +82,11 @@ export default function TaskDetailPage() {
                         const stats = parseDiffStats(diff);
                         setDiffStats(stats);
                     } catch (error) {
-                        console.error('Error fetching git diff:', error);
+                        console.error("Error fetching git diff:", error);
                     }
                 }
             } catch (error) {
-                console.error('Error polling task status:', error);
+                console.error("Error polling task status:", error);
             }
         }, 2000);
 
@@ -80,7 +95,7 @@ export default function TaskDetailPage() {
 
     const loadTask = async () => {
         if (!user?.id) return;
-        
+
         try {
             setLoading(true);
             const taskData = await ApiService.getTask(user.id, taskId);
@@ -94,11 +109,11 @@ export default function TaskDetailPage() {
                     const stats = parseDiffStats(diff);
                     setDiffStats(stats);
                 } catch (error) {
-                    console.error('Error fetching git diff:', error);
+                    console.error("Error fetching git diff:", error);
                 }
             }
         } catch (error) {
-            console.error('Error loading task:', error);
+            console.error("Error loading task:", error);
         } finally {
             setLoading(false);
         }
@@ -109,15 +124,15 @@ export default function TaskDetailPage() {
 
         try {
             await ApiService.addChatMessage(user.id, taskId, {
-                role: 'user',
-                content: newMessage.trim()
+                role: "user",
+                content: newMessage.trim(),
             });
             setNewMessage("");
             toast.success("Message added successfully");
             loadTask(); // Reload to get updated messages
         } catch (error) {
-            console.error('Error adding message:', error);
-            toast.error('Failed to add message');
+            console.error("Error adding message:", error);
+            toast.error("Failed to add message");
         }
     };
 
@@ -125,27 +140,28 @@ export default function TaskDetailPage() {
         if (!task || task.status !== "completed" || !user?.id) return;
 
         setCreatingPR(true);
-        
+
         try {
-            const prompt = (task.chat_messages as unknown as ChatMessage[])?.[0]?.content || '';
-            const modelName = task.agent === 'codex' ? 'Codex' : 'Claude Code';
-            
+            const prompt = (task.chat_messages as unknown as ChatMessage[])?.[0]?.content || "";
+            const modelName = task.agent === "codex" ? "Codex" : "Claude Code";
+
             toast.loading("Creating pull request...");
-            
+
             const response = await ApiService.createPullRequest(user.id, task.id, {
                 title: `${modelName}: ${prompt.substring(0, 50)}...`,
                 body: `Automated changes generated by ${modelName}.\n\nPrompt: ${prompt}`,
-                github_token: githubToken
+                github_token: githubToken,
+                gitlab_token: gitlabToken,
             });
 
             toast.dismiss();
             toast.success(`Pull request #${response.pr_number} created successfully!`);
-            
+
             // Refresh task data to show the new PR info
             await loadTask();
-            
+
             // Open the PR in a new tab
-            window.open(response.pr_url, '_blank');
+            window.open(response.pr_url, "_blank");
         } catch (error) {
             toast.dismiss();
             toast.error(`Failed to create PR: ${error}`);
@@ -156,21 +172,31 @@ export default function TaskDetailPage() {
 
     const getStatusVariant = (status: string) => {
         switch (status) {
-            case "pending": return "secondary";
-            case "running": return "default";
-            case "completed": return "default";
-            case "failed": return "destructive";
-            default: return "outline";
+            case "pending":
+                return "secondary";
+            case "running":
+                return "default";
+            case "completed":
+                return "default";
+            case "failed":
+                return "destructive";
+            default:
+                return "outline";
         }
     };
 
     const getStatusIcon = (status: string) => {
         switch (status) {
-            case "pending": return <Clock className="w-4 h-4" />;
-            case "running": return <AlertCircle className="w-4 h-4" />;
-            case "completed": return <CheckCircle className="w-4 h-4" />;
-            case "failed": return <XCircle className="w-4 h-4" />;
-            default: return null;
+            case "pending":
+                return <Clock className="w-4 h-4" />;
+            case "running":
+                return <AlertCircle className="w-4 h-4" />;
+            case "completed":
+                return <CheckCircle className="w-4 h-4" />;
+            case "failed":
+                return <XCircle className="w-4 h-4" />;
+            default:
+                return null;
         }
     };
 
@@ -219,37 +245,37 @@ export default function TaskDetailPage() {
                                 <div>
                                     <h1 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
                                         Task #{task.id}
-                                        <Badge variant={getStatusVariant(task.status || '')} className="gap-1">
-                                            {getStatusIcon(task.status || '')}
+                                        <Badge variant={getStatusVariant(task.status || "")} className="gap-1">
+                                            {getStatusIcon(task.status || "")}
                                             {task.status}
                                         </Badge>
                                     </h1>
                                     <p className="text-sm text-slate-500">
-                                        {task.project ? `${task.project.name} • ` : ''}
-                                        {task.agent?.toUpperCase()} • 
-                                        {new Date(task.created_at || '').toLocaleString()}
+                                        {task.project ? `${task.project.name} • ` : ""}
+                                        {task.agent?.toUpperCase()} •{new Date(task.created_at || "").toLocaleString()}
                                     </p>
                                 </div>
                             </div>
-                            {task.status === "completed" && (
-                                task.pr_url ? (
+                            {task.status === "completed" &&
+                                (task.pr_url ? (
                                     <Button asChild variant="outline" className="gap-2">
                                         <a href={task.pr_url} target="_blank" rel="noopener noreferrer">
                                             <ExternalLink className="w-4 h-4" />
-                                            View PR #{task.pr_number}
+                                            {task.repo_url?.includes("gitlab.com") ? "View MR" : "View PR"} #{task.pr_number}
                                         </a>
                                     </Button>
                                 ) : (
                                     <Button onClick={handleCreatePR} disabled={creatingPR} className="gap-2">
-                                        {creatingPR ? (
-                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                        ) : (
-                                            <ExternalLink className="w-4 h-4" />
-                                        )}
-                                        {creatingPR ? "Creating PR..." : "Create PR"}
+                                        {creatingPR ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+                                        {creatingPR
+                                            ? task.repo_url?.includes("gitlab.com")
+                                                ? "Creating MR..."
+                                                : "Creating PR..."
+                                            : task.repo_url?.includes("gitlab.com")
+                                            ? "Create MR"
+                                            : "Create PR"}
                                     </Button>
-                                )
-                            )}
+                                ))}
                         </div>
                     </div>
                 </header>
@@ -280,7 +306,7 @@ export default function TaskDetailPage() {
                                         </div>
                                         <div>
                                             <Label className="text-sm font-medium text-slate-500">Created</Label>
-                                            <p className="text-sm">{new Date(task.created_at || '').toLocaleString()}</p>
+                                            <p className="text-sm">{new Date(task.created_at || "").toLocaleString()}</p>
                                         </div>
                                     </div>
 
@@ -288,14 +314,8 @@ export default function TaskDetailPage() {
                                         <div>
                                             <Label className="text-sm font-medium text-slate-500">Commit Hash</Label>
                                             <div className="flex items-center gap-2 mt-1">
-                                                <code className="bg-slate-100 px-2 py-1 rounded text-sm">
-                                                    {task.commit_hash.substring(0, 12)}
-                                                </code>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => navigator.clipboard.writeText(task.commit_hash || '')}
-                                                >
+                                                <code className="bg-slate-100 px-2 py-1 rounded text-sm">{task.commit_hash.substring(0, 12)}</code>
+                                                <Button variant="ghost" size="sm" onClick={() => navigator.clipboard.writeText(task.commit_hash || "")}>
                                                     <Copy className="w-3 h-3" />
                                                 </Button>
                                             </div>
@@ -304,15 +324,17 @@ export default function TaskDetailPage() {
 
                                     {task.pr_url && (
                                         <div>
-                                            <Label className="text-sm font-medium text-slate-500">Pull Request</Label>
+                                            <Label className="text-sm font-medium text-slate-500">
+                                                {task.repo_url?.includes("gitlab.com") ? "Merge Request" : "Pull Request"}
+                                            </Label>
                                             <div className="flex items-center gap-2 mt-1">
-                                                <a 
-                                                    href={task.pr_url} 
-                                                    target="_blank" 
+                                                <a
+                                                    href={task.pr_url}
+                                                    target="_blank"
                                                     rel="noopener noreferrer"
                                                     className="text-blue-600 hover:underline text-sm"
                                                 >
-                                                    #{task.pr_number} - View on GitHub
+                                                    #{task.pr_number} - View on {task.repo_url?.includes("gitlab.com") ? "GitLab" : "GitHub"}
                                                 </a>
                                                 <ExternalLink className="w-3 h-3 text-slate-400" />
                                             </div>
@@ -343,7 +365,7 @@ export default function TaskDetailPage() {
                                                 </div>
                                             </div>
                                             <div className="mt-3 bg-blue-100 rounded-full h-2">
-                                                <div className="bg-blue-600 h-2 rounded-full animate-pulse" style={{width: '60%'}}></div>
+                                                <div className="bg-blue-600 h-2 rounded-full animate-pulse" style={{ width: "60%" }}></div>
                                             </div>
                                         </div>
                                     )}
@@ -358,16 +380,10 @@ export default function TaskDetailPage() {
                                             <CheckCircle className="w-5 h-5 text-green-600" />
                                             Code Changes
                                         </CardTitle>
-                                        <CardDescription>
-                                            Review the changes made by AI
-                                        </CardDescription>
+                                        <CardDescription>Review the changes made by AI</CardDescription>
                                     </CardHeader>
                                     <CardContent>
-                                        <DiffViewer 
-                                            diff={gitDiff} 
-                                            fileChanges={(task.execution_metadata as any)?.file_changes}
-                                            stats={diffStats}
-                                        />
+                                        <DiffViewer diff={gitDiff} fileChanges={(task.execution_metadata as any)?.file_changes} stats={diffStats} />
                                     </CardContent>
                                 </Card>
                             )}
@@ -381,33 +397,25 @@ export default function TaskDetailPage() {
                                         <MessageSquare className="w-5 h-5" />
                                         Task Messages
                                     </CardTitle>
-                                    <CardDescription>
-                                        Conversation history for this task
-                                    </CardDescription>
+                                    <CardDescription>Conversation history for this task</CardDescription>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
                                     {/* Chat Messages */}
                                     <div className="space-y-3 max-h-96 overflow-y-auto">
                                         {(task.chat_messages as unknown as ChatMessage[])?.map((message, index) => (
-                                            <div 
+                                            <div
                                                 key={index}
                                                 className={`p-3 rounded-lg ${
-                                                    message.role === 'user' 
-                                                        ? 'bg-blue-50 border border-blue-200' 
-                                                        : 'bg-slate-50 border border-slate-200'
+                                                    message.role === "user" ? "bg-blue-50 border border-blue-200" : "bg-slate-50 border border-slate-200"
                                                 }`}
                                             >
                                                 <div className="flex items-center gap-2 mb-2">
-                                                    <Badge variant={message.role === 'user' ? 'default' : 'secondary'}>
-                                                        {message.role === 'user' ? 'You' : 'Assistant'}
+                                                    <Badge variant={message.role === "user" ? "default" : "secondary"}>
+                                                        {message.role === "user" ? "You" : "Assistant"}
                                                     </Badge>
-                                                    <span className="text-xs text-slate-500">
-                                                        {new Date(message.timestamp).toLocaleString()}
-                                                    </span>
+                                                    <span className="text-xs text-slate-500">{new Date(message.timestamp).toLocaleString()}</span>
                                                 </div>
-                                                <p className="text-sm text-slate-700 whitespace-pre-wrap">
-                                                    {message.content}
-                                                </p>
+                                                <p className="text-sm text-slate-700 whitespace-pre-wrap">{message.content}</p>
                                             </div>
                                         )) || (
                                             <div className="text-center py-4 text-slate-500">
@@ -426,7 +434,7 @@ export default function TaskDetailPage() {
                                                 value={newMessage}
                                                 onChange={(e) => setNewMessage(e.target.value)}
                                                 placeholder="Type your message..."
-                                                onKeyPress={(e) => e.key === 'Enter' && handleAddMessage()}
+                                                onKeyPress={(e) => e.key === "Enter" && handleAddMessage()}
                                             />
                                             <Button onClick={handleAddMessage} disabled={!newMessage.trim()}>
                                                 <Plus className="w-4 h-4" />

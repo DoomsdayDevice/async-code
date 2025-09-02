@@ -13,14 +13,14 @@ import { ApiService } from "@/lib/api-service";
 import { Task, Project } from "@/types";
 
 interface TaskWithProject extends Task {
-    project?: Project
+    project?: Project;
 }
 
 export default function ProjectTasksPage() {
     const { user } = useAuth();
     const params = useParams();
     const projectId = parseInt(params.id as string);
-    
+
     const [project, setProject] = useState<Project | null>(null);
     const [tasks, setTasks] = useState<TaskWithProject[]>([]);
     const [loading, setLoading] = useState(true);
@@ -28,30 +28,34 @@ export default function ProjectTasksPage() {
     useEffect(() => {
         if (user?.id && projectId) {
             loadProject();
-            loadTasks();
         }
     }, [user?.id, projectId]);
 
     const loadProject = async () => {
         if (!user?.id) return;
-        
+
         try {
             const projectData = await ApiService.getProject(user.id, projectId);
             setProject(projectData);
+            if (projectData) {
+                await loadTasks();
+            } else {
+                setTasks([]);
+            }
         } catch (error) {
-            console.error('Error loading project:', error);
+            console.error("Error loading project:", error);
         }
     };
 
     const loadTasks = async () => {
         if (!user?.id) return;
-        
+
         try {
             setLoading(true);
             const taskData = await ApiService.getTasks(user.id, projectId);
             setTasks(taskData);
         } catch (error) {
-            console.error('Error loading tasks:', error);
+            console.error("Error loading tasks:", error);
         } finally {
             setLoading(false);
         }
@@ -59,21 +63,31 @@ export default function ProjectTasksPage() {
 
     const getStatusVariant = (status: string) => {
         switch (status) {
-            case "pending": return "secondary";
-            case "running": return "default";
-            case "completed": return "default";
-            case "failed": return "destructive";
-            default: return "outline";
+            case "pending":
+                return "secondary";
+            case "running":
+                return "default";
+            case "completed":
+                return "default";
+            case "failed":
+                return "destructive";
+            default:
+                return "outline";
         }
     };
 
     const getStatusIcon = (status: string) => {
         switch (status) {
-            case "pending": return <Clock className="w-4 h-4" />;
-            case "running": return <AlertCircle className="w-4 h-4" />;
-            case "completed": return <CheckCircle className="w-4 h-4" />;
-            case "failed": return <XCircle className="w-4 h-4" />;
-            default: return null;
+            case "pending":
+                return <Clock className="w-4 h-4" />;
+            case "running":
+                return <AlertCircle className="w-4 h-4" />;
+            case "completed":
+                return <CheckCircle className="w-4 h-4" />;
+            case "failed":
+                return <XCircle className="w-4 h-4" />;
+            default:
+                return null;
         }
     };
 
@@ -151,14 +165,12 @@ export default function ProjectTasksPage() {
                                     <div className="text-sm text-slate-500">Total Tasks</div>
                                 </div>
                                 <div className="text-center p-4 bg-green-50 rounded-lg">
-                                    <div className="text-2xl font-bold text-green-700">
-                                        {tasks.filter(t => t.status === 'completed').length}
-                                    </div>
+                                    <div className="text-2xl font-bold text-green-700">{tasks.filter((t) => t.status === "completed").length}</div>
                                     <div className="text-sm text-green-600">Completed</div>
                                 </div>
                                 <div className="text-center p-4 bg-blue-50 rounded-lg">
                                     <div className="text-2xl font-bold text-blue-700">
-                                        {tasks.filter(t => t.status === 'running' || t.status === 'pending').length}
+                                        {tasks.filter((t) => t.status === "running" || t.status === "pending").length}
                                     </div>
                                     <div className="text-sm text-blue-600">Active</div>
                                 </div>
@@ -170,9 +182,7 @@ export default function ProjectTasksPage() {
                     <Card>
                         <CardHeader>
                             <CardTitle>All Tasks</CardTitle>
-                            <CardDescription>
-                                Automation tasks for this project
-                            </CardDescription>
+                            <CardDescription>Automation tasks for this project</CardDescription>
                         </CardHeader>
                         <CardContent>
                             {tasks.length === 0 ? (
@@ -193,31 +203,21 @@ export default function ProjectTasksPage() {
                                         <div key={task.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-slate-50">
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-3 mb-2">
-                                                    <Badge variant={getStatusVariant(task.status || '')} className="gap-1">
-                                                        {getStatusIcon(task.status || '')}
+                                                    <Badge variant={getStatusVariant(task.status || "")} className="gap-1">
+                                                        {getStatusIcon(task.status || "")}
                                                         {task.status}
                                                     </Badge>
-                                                    <span className="text-sm text-slate-500">
-                                                        Task #{task.id}
-                                                    </span>
-                                                    <span className="text-sm text-slate-500">
-                                                        {task.agent?.toUpperCase()}
-                                                    </span>
+                                                    <span className="text-sm text-slate-500">Task #{task.id}</span>
+                                                    <span className="text-sm text-slate-500">{task.agent?.toUpperCase()}</span>
                                                 </div>
                                                 <p className="text-sm font-medium text-slate-900 truncate mb-1">
-                                                    {(task.chat_messages as any[])?.[0]?.content || 'No prompt available'}
+                                                    {(task.chat_messages as any[])?.[0]?.content || "No prompt available"}
                                                 </p>
                                                 <div className="flex items-center gap-4 text-xs text-slate-500">
-                                                    <span>Created: {new Date(task.created_at || '').toLocaleString()}</span>
-                                                    {task.completed_at && (
-                                                        <span>Completed: {new Date(task.completed_at).toLocaleString()}</span>
-                                                    )}
-                                                    {task.commit_hash && (
-                                                        <span>Commit: {task.commit_hash.substring(0, 8)}</span>
-                                                    )}
-                                                    {task.pr_number && (
-                                                        <span>PR: #{task.pr_number}</span>
-                                                    )}
+                                                    <span>Created: {new Date(task.created_at || "").toLocaleString()}</span>
+                                                    {task.completed_at && <span>Completed: {new Date(task.completed_at).toLocaleString()}</span>}
+                                                    {task.commit_hash && <span>Commit: {task.commit_hash.substring(0, 8)}</span>}
+                                                    {task.pr_number && <span>PR: #{task.pr_number}</span>}
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-2">

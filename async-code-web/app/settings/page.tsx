@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Github, CheckCircle, ArrowLeft, Settings, Key, Shield, Info, Code } from "lucide-react";
+import { Github, Gitlab, CheckCircle, ArrowLeft, Settings, Key, Shield, Info, Code, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,9 +11,12 @@ import { CodeAgentSettings } from "@/components/code-agent-settings";
 
 import Link from "next/link";
 import { API_BASE } from "@/lib/config";
+import { useAuth } from "@/contexts/auth-context";
 
 export default function SettingsPage() {
+    const { user, signIn, signOut } = useAuth();
     const [githubToken, setGithubToken] = useState("");
+    const [gitlabToken, setGitlabToken] = useState("");
     const [tokenValidation, setTokenValidation] = useState<{
         status: string;
         user?: string;
@@ -25,17 +28,19 @@ export default function SettingsPage() {
 
     // API_BASE передается из настроек окружения через '@/lib/config'
 
-    // Initialize GitHub token from localStorage
+    // Initialize tokens from localStorage
     useEffect(() => {
         if (typeof window !== "undefined") {
             const savedToken = localStorage.getItem("github-token");
             if (savedToken) {
                 setGithubToken(savedToken);
             }
+            const savedGitlab = localStorage.getItem("gitlab-token");
+            if (savedGitlab) setGitlabToken(savedGitlab);
         }
     }, []);
 
-    // Save GitHub token to localStorage whenever it changes
+    // Save tokens to localStorage whenever they change
     useEffect(() => {
         if (typeof window !== "undefined") {
             if (githubToken.trim()) {
@@ -46,9 +51,25 @@ export default function SettingsPage() {
         }
     }, [githubToken]);
 
+    useEffect(() => {
+        if (typeof window !== "undefined") {
+            if (gitlabToken.trim()) {
+                localStorage.setItem("gitlab-token", gitlabToken);
+            } else {
+                localStorage.removeItem("gitlab-token");
+            }
+        }
+    }, [gitlabToken]);
+
     const handleValidateToken = async () => {
-        if (!githubToken.trim() || !repoUrl.trim()) {
-            toast.error("Please provide both GitHub token and repository URL");
+        if (!repoUrl.trim()) {
+            toast.error("Please provide a repository URL");
+            return;
+        }
+        const isGitLab = repoUrl.includes("gitlab.com");
+        const needsToken = isGitLab ? gitlabToken : githubToken;
+        if (!needsToken.trim()) {
+            toast.error(isGitLab ? "Please provide GitLab token" : "Please provide GitHub token");
             return;
         }
 
@@ -56,11 +77,10 @@ export default function SettingsPage() {
         try {
             const response = await fetch(`${API_BASE}/validate-token`, {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    github_token: githubToken,
+                    github_token: isGitLab ? undefined : githubToken,
+                    gitlab_token: isGitLab ? gitlabToken : undefined,
                     repo_url: repoUrl,
                 }),
             });
@@ -123,6 +143,39 @@ export default function SettingsPage() {
             {/* Main Content */}
             <main className="container mx-auto px-6 py-8 max-w-3xl">
                 <div className="space-y-6">
+                    {/* Local Identity Section */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <User className="w-5 h-5" />
+                                Local Identity
+                            </CardTitle>
+                            <CardDescription>Локальная учетная запись для разработки. Этот идентификатор используется в заголовке X-User-ID.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <Label>User ID</Label>
+                                    <Input
+                                        value={user?.id || ""}
+                                        onChange={(e) => signIn(e.target.value, user?.email)}
+                                        placeholder="212dcbcc-394b-4a97-ade3-b1c639e50ae8"
+                                        className="font-mono"
+                                    />
+                                </div>
+                                <div>
+                                    <Label>Email</Label>
+                                    <Input value={user?.email || ""} onChange={(e) => signIn(user?.id || "", e.target.value)} placeholder="you@example.com" />
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Button variant="outline" onClick={signOut}>
+                                    Сбросить
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+
                     {/* GitHub Authentication Section */}
                     <Card>
                         <CardHeader>
@@ -239,6 +292,41 @@ export default function SettingsPage() {
                                         </div>
                                     </div>
                                 )}
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    {/* GitLab Authentication Section */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Gitlab className="w-5 h-5" />
+                                GitLab Authentication
+                            </CardTitle>
+                            <CardDescription>Configure your GitLab Personal Access Token to enable repository access and MR creation</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            <div className="space-y-2">
+                                <Label htmlFor="gitlab-token" className="flex items-center gap-2">
+                                    <Key className="w-4 h-4" />
+                                    Personal Access Token
+                                </Label>
+                                <Input
+                                    id="gitlab-token"
+                                    type="password"
+                                    value={gitlabToken}
+                                    onChange={(e) => setGitlabToken(e.target.value)}
+                                    placeholder="glpat-..."
+                                    className="font-mono"
+                                />
+                                <div className="p-3 bg-orange-50 border border-orange-200 rounded-md">
+                                    <div className="flex items-start gap-2 text-orange-800">
+                                        <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                                        <div className="text-sm">
+                                            Token is stored locally. Ensure the token has api scope to allow branch and MR operations.
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </CardContent>
                     </Card>

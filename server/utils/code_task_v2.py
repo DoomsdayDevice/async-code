@@ -244,8 +244,13 @@ set -e
 echo "Setting up repository..."
 
 # Clone repository with authentication
-# Convert GitHub URL to use token authentication
-REPO_URL_WITH_TOKEN=$(echo "{task['repo_url']}" | sed "s|https://github.com/|https://{github_token}@github.com/|")
+# Подставляем токен в URL GitHub или GitLab
+if echo "{task['repo_url']}" | grep -q "gitlab.com"; then
+    # GitLab рекомендует использовать oauth2:<token>@gitlab.com
+    REPO_URL_WITH_TOKEN=$(echo "{task['repo_url']}" | sed "s|https://gitlab.com/|https://oauth2:{github_token}@gitlab.com/|")
+else
+    REPO_URL_WITH_TOKEN=$(echo "{task['repo_url']}" | sed "s|https://github.com/|https://{github_token}@github.com/|")
+fi
 git clone -b {task['target_branch']} "$REPO_URL_WITH_TOKEN" /workspace/repo
 cd /workspace/repo
 
@@ -297,7 +302,7 @@ if [ "{model_cli}" = "codex" ]; then
     echo "CODEX_QUIET_MODE: $CODEX_QUIET_MODE"
     echo "CODEX_UNSAFE_ALLOW_NO_SANDBOX: $CODEX_UNSAFE_ALLOW_NO_SANDBOX"
     echo "OPENAI_API_KEY: $(echo $OPENAI_API_KEY | head -c 8)..."
-    echo "USING OFFICIAL CODEX FLAGS: --approval-mode full-auto --quiet for non-interactive operation"
+    echo "Invoking Codex CLI without unsupported flags"
     echo "======================="
     
     # Read the prompt from file
@@ -307,14 +312,17 @@ if [ "{model_cli}" = "codex" ]; then
     if [ -f /usr/local/bin/codex ]; then
         echo "Found codex at /usr/local/bin/codex"
         echo "Running Codex in non-interactive mode..."
-        
-        # Use official non-interactive flags for Docker environment
-        # Using --approval-mode full-auto as per official Codex documentation
-        # Also disable Codex's internal sandboxing to prevent conflicts with Docker
-        /usr/local/bin/codex --approval-mode full-auto --quiet "$PROMPT_TEXT"
+        # Temporarily allow capturing non-zero exit for retries
+        set +e
+        /usr/local/bin/codex "$PROMPT_TEXT"
         CODEX_EXIT_CODE=$?
+        if [ $CODEX_EXIT_CODE -ne 0 ]; then
+            echo "First invocation failed ($CODEX_EXIT_CODE), trying stdin pipe..."
+            echo "$PROMPT_TEXT" | /usr/local/bin/codex
+            CODEX_EXIT_CODE=$?
+        fi
+        set -e
         echo "Codex finished with exit code: $CODEX_EXIT_CODE"
-        
         if [ $CODEX_EXIT_CODE -ne 0 ]; then
             echo "ERROR: Codex failed with exit code $CODEX_EXIT_CODE"
             exit $CODEX_EXIT_CODE
@@ -324,14 +332,16 @@ if [ "{model_cli}" = "codex" ]; then
     elif command -v codex >/dev/null 2>&1; then
         echo "Using codex from PATH..."
         echo "Running Codex in non-interactive mode..."
-        
-        # Use official non-interactive flags for Docker environment
-        # Using --approval-mode full-auto as per official Codex documentation
-        # Also disable Codex's internal sandboxing to prevent conflicts with Docker
-        codex --approval-mode full-auto --quiet "$PROMPT_TEXT"
+        set +e
+        codex "$PROMPT_TEXT"
         CODEX_EXIT_CODE=$?
+        if [ $CODEX_EXIT_CODE -ne 0 ]; then
+            echo "First invocation failed ($CODEX_EXIT_CODE), trying stdin pipe..."
+            echo "$PROMPT_TEXT" | codex
+            CODEX_EXIT_CODE=$?
+        fi
+        set -e
         echo "Codex finished with exit code: $CODEX_EXIT_CODE"
-        
         if [ $CODEX_EXIT_CODE -ne 0 ]; then
             echo "ERROR: Codex failed with exit code $CODEX_EXIT_CODE"
             exit $CODEX_EXIT_CODE
@@ -358,11 +368,11 @@ if [ -f /usr/local/bin/claude ]; then
     head -5 /usr/local/bin/claude || echo "head command failed"
     
     # Check if it's a shell script
-    if head -1 /usr/local/bin/claude | grep -q "#!/bin/sh\|#!/bin/bash\|#!/usr/bin/env bash"; then
+    if head -1 /usr/local/bin/claude | grep -Eq "#!/bin/sh|#!/bin/bash|#!/usr/bin/env bash"; then
         echo "Detected shell script, running with sh..."
         sh /usr/local/bin/claude < /tmp/prompt.txt
     # Check if it's a Node.js script (including env -S node pattern)
-    elif head -1 /usr/local/bin/claude | grep -q "#!/usr/bin/env.*node\|#!/usr/bin/node"; then
+    elif head -1 /usr/local/bin/claude | grep -Eq "#!/usr/bin/env.*node|#!/usr/bin/node"; then
         echo "Detected Node.js script..."
         if command -v node >/dev/null 2>&1; then
             echo "Running with node..."
@@ -399,7 +409,7 @@ if [ -f /usr/local/bin/claude ]; then
             echo "✅ Claude Code completed successfully"
         fi
     # Check if it's a Python script
-    elif head -1 /usr/local/bin/claude | grep -q "#!/usr/bin/env python\|#!/usr/bin/python"; then
+    elif head -1 /usr/local/bin/claude | grep -Eq "#!/usr/bin/env python|#!/usr/bin/python"; then
         echo "Detected Python script..."
         if command -v python3 >/dev/null 2>&1; then
             echo "Running with python3..."
@@ -537,8 +547,8 @@ exit 0
             'remove': False,  # Don't auto-remove so we can get logs
             'working_dir': '/workspace',
             'network_mode': 'bridge',  # Ensure proper networking
-            'tty': False,  # Don't allocate TTY - may prevent clean exit
-            'stdin_open': False,  # Don't keep stdin open - may prevent clean exit
+            'tty': False,  # Default: no TTY (overridden for Codex below)
+            'stdin_open': False,  # Default: no open stdin (overridden for Codex below)
             'name': f'ai-code-task-{task_id}-{int(time.time())}-{uuid.uuid4().hex[:8]}',  # Highly unique container name with UUID
             'mem_limit': '2g',  # Limit memory usage to prevent resource conflicts
             'cpu_shares': 1024,  # Standard CPU allocation
@@ -559,6 +569,10 @@ exit 0
                 'privileged': True,            # Run in fully privileged mode
                 'pid_mode': 'host'            # Share host PID namespace
             })
+            # Allocate a TTY and open stdin for Codex CLI to avoid /dev/tty errors in non-interactive environments
+            # Некоторые версии Codex пытаются читать из /dev/tty; без псевдо-TTY это приводит к "os error 6"
+            container_kwargs['tty'] = True
+            container_kwargs['stdin_open'] = True
         
         # Retry container creation with enhanced conflict handling
         container = None

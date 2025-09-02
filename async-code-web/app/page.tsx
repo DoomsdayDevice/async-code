@@ -52,6 +52,7 @@ export default function Home() {
     const [selectedProject, setSelectedProject] = useState<string>("");
     const [branch, setBranch] = useState("main");
     const [githubToken, setGithubToken] = useState("");
+    const [gitlabToken, setGitlabToken] = useState("");
     const [model, setModel] = useState("claude");
     const [tasks, setTasks] = useState<TaskWithProject[]>([]);
     const [projects, setProjects] = useState<Project[]>([]);
@@ -63,13 +64,15 @@ export default function Home() {
     const [taskPage, setTaskPage] = useState(0);
     const TASKS_PER_PAGE = 10;
 
-    // Initialize GitHub token from localStorage
+    // Initialize tokens from localStorage
     useEffect(() => {
         if (typeof window !== "undefined") {
             const savedToken = localStorage.getItem("github-token");
             if (savedToken) {
                 setGithubToken(savedToken);
             }
+            const savedGitlab = localStorage.getItem("gitlab-token");
+            if (savedGitlab) setGitlabToken(savedGitlab);
         }
     }, []);
 
@@ -81,7 +84,7 @@ export default function Home() {
         }
     }, [user?.id]);
 
-    // Save GitHub token to localStorage whenever it changes
+    // Save tokens to localStorage whenever they change
     useEffect(() => {
         if (typeof window !== "undefined") {
             if (githubToken.trim()) {
@@ -91,6 +94,16 @@ export default function Home() {
             }
         }
     }, [githubToken]);
+
+    useEffect(() => {
+        if (typeof window !== "undefined") {
+            if (gitlabToken.trim()) {
+                localStorage.setItem("gitlab-token", gitlabToken);
+            } else {
+                localStorage.removeItem("gitlab-token");
+            }
+        }
+    }, [gitlabToken]);
 
     // Poll task status for running tasks
     useEffect(() => {
@@ -214,6 +227,7 @@ export default function Home() {
                 repo_url: repoUrl,
                 branch: branch,
                 github_token: githubToken,
+                gitlab_token: gitlabToken,
                 model: model,
                 project_id: projectId,
             });
@@ -373,12 +387,12 @@ export default function Home() {
                                 <CardHeader>
                                     <CardTitle>Code Generation Prompt</CardTitle>
                                     <CardDescription>Describe the feature, bug fix, or enhancement you want AI to implement</CardDescription>
-                                    {!githubToken.trim() && (
+                                    {!githubToken.trim() && !gitlabToken.trim() && (
                                         <div className="p-3 bg-amber-50 border border-amber-200 rounded-md">
                                             <div className="flex items-start gap-2 text-amber-800">
                                                 <Github className="h-4 w-4 mt-0.5 flex-shrink-0" />
                                                 <div className="text-sm">
-                                                    <strong>GitHub Token Required:</strong> Please configure your GitHub token in{" "}
+                                                    <strong>Token Required:</strong> Please configure your GitHub or GitLab token in{" "}
                                                     <Link href="/settings" className="underline hover:text-amber-900">
                                                         Settings
                                                     </Link>{" "}
@@ -497,7 +511,7 @@ export default function Home() {
                                     <div className="flex justify-start pt-2">
                                         <Button
                                             onClick={handleStartTask}
-                                            disabled={isLoading || !selectedProject || !prompt.trim() || !githubToken.trim()}
+                                            disabled={isLoading || !selectedProject || !prompt.trim() || (!githubToken.trim() && !gitlabToken.trim())}
                                             className="gap-2 rounded-full min-w-[100px]"
                                         >
                                             <Code2 className="w-4 h-4" />

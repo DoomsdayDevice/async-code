@@ -8,11 +8,13 @@ logger = logging.getLogger(__name__)
 projects_bp = Blueprint('projects', __name__)
 
 def parse_github_url(repo_url: str):
-    """Parse GitHub URL to extract owner and repo name"""
-    # Handle both https and git URLs
+    """Разобрать URL репозитория (GitHub или GitLab) и извлечь владельца и имя репозитория"""
+    # Handle both https and git URLs for GitHub and GitLab
     patterns = [
         r'https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$',
-        r'git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$'
+        r'git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$',
+        r'https://gitlab\.com/([^/]+)/([^/]+?)(?:\.git)?/?$',
+        r'git@gitlab\.com:([^/]+)/([^/]+?)(?:\.git)?$'
     ]
     
     for pattern in patterns:
@@ -24,7 +26,7 @@ def parse_github_url(repo_url: str):
                 repo = repo[:-4]
             return owner, repo
     
-    raise ValueError(f"Invalid GitHub URL format: {repo_url}")
+    raise ValueError(f"Invalid repository URL format: {repo_url}")
 
 @projects_bp.route('/projects', methods=['GET'])
 def get_projects():

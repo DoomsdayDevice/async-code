@@ -170,6 +170,11 @@ export class ApiService {
             headers: getUserIdHeader(userId),
         });
 
+        if (projectId && response.status === 404) {
+            // Проект не найден или не принадлежит пользователю — вернём пустой список
+            return [];
+        }
+
         if (!response.ok) {
             throw new Error("Failed to fetch tasks");
         }
@@ -201,7 +206,8 @@ export class ApiService {
             prompt: string;
             repo_url: string;
             branch?: string;
-            github_token: string;
+            github_token?: string;
+            gitlab_token?: string;
             model?: string;
             project_id?: number;
         }
@@ -267,7 +273,8 @@ export class ApiService {
         prData: {
             title?: string;
             body?: string;
-            github_token: string;
+            github_token?: string;
+            gitlab_token?: string;
         }
     ): Promise<{ pr_url: string; pr_number: number }> {
         const response = await fetch(`${API_BASE}/create-pr/${taskId}`, {
@@ -287,27 +294,28 @@ export class ApiService {
         return data;
     }
 
-    static async validateGitHubToken(
-        token: string,
-        repoUrl?: string
-    ): Promise<{
-        user: string;
-        repo?: any;
-    }> {
+    static async validateToken({
+        githubToken,
+        gitlabToken,
+        repoUrl,
+    }: {
+        githubToken?: string;
+        gitlabToken?: string;
+        repoUrl?: string;
+    }): Promise<{ user: string; repo?: any }> {
         const response = await fetch(`${API_BASE}/validate-token`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
-                github_token: token,
+                github_token: githubToken,
+                gitlab_token: gitlabToken,
                 repo_url: repoUrl,
             }),
         });
 
-        if (!response.ok) {
-            throw new Error("GitHub token validation failed");
-        }
+        if (!response.ok) throw new Error("Token validation failed");
 
         const data = await response.json();
         return data;
@@ -327,9 +335,11 @@ export class ApiService {
     }
 
     // Utility functions
-    static parseGitHubUrl(url: string): { owner: string; repo: string } {
-        const match = url.match(/github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?(?:\/|$)/);
-        if (!match) throw new Error("Invalid GitHub URL");
-        return { owner: match[1], repo: match[2] };
+    static parseGitUrl(url: string): { host: string; owner: string; repo: string } {
+        const gh = url.match(/github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?(?:\/|$)/);
+        if (gh) return { host: "github.com", owner: gh[1], repo: gh[2] };
+        const gl = url.match(/gitlab\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?(?:\/|$)/);
+        if (gl) return { host: "gitlab.com", owner: gl[1], repo: gl[2] };
+        throw new Error("Invalid Git URL");
     }
 }

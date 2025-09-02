@@ -13,7 +13,10 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     const router = useRouter();
 
     useEffect(() => {
-        // With local user, if not available yet, wait for loading to finish
+        // Переадресуем на /signin, если пользователь не аутентифицирован
+        if (!loading && !user?.id) {
+            router.replace("/signin");
+        }
     }, [user, loading, router]);
 
     if (loading) {
@@ -24,7 +27,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
         );
     }
 
-    // Local user is always present after loading
+    if (!user?.id) return null;
 
     return <>{children}</>;
 }
