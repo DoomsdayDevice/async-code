@@ -316,12 +316,12 @@ if [ "{model_cli}" = "codex" ]; then
         echo "Running Codex in non-interactive mode..."
         # Temporarily allow capturing non-zero exit for retries
         set +e
-        # Use file-first syntax: script [options] FILE COMMAND ARGS...
-        script -q /dev/null /bin/sh -lc "/usr/local/bin/codex \"$PROMPT_TEXT\""
+        # Use BusyBox/compat form: script -q -c "CMD" /dev/null
+        script -q -c "/usr/local/bin/codex \"$PROMPT_TEXT\"" /dev/null
         CODEX_EXIT_CODE=$?
         if [ $CODEX_EXIT_CODE -ne 0 ]; then
             echo "First invocation failed ($CODEX_EXIT_CODE), trying stdin pipe..."
-            script -q /dev/null /bin/sh -lc "printf %s \"$PROMPT_TEXT\" | /usr/local/bin/codex"
+            script -q -c "printf %s \"$PROMPT_TEXT\" | /usr/local/bin/codex" /dev/null
             CODEX_EXIT_CODE=$?
         fi
         set -e
@@ -336,11 +336,11 @@ if [ "{model_cli}" = "codex" ]; then
         echo "Using codex from PATH..."
         echo "Running Codex in non-interactive mode..."
         set +e
-        script -q /dev/null /bin/sh -lc "codex \"$PROMPT_TEXT\""
+        script -q -c "codex \"$PROMPT_TEXT\"" /dev/null
         CODEX_EXIT_CODE=$?
         if [ $CODEX_EXIT_CODE -ne 0 ]; then
             echo "First invocation failed ($CODEX_EXIT_CODE), trying stdin pipe..."
-            script -q /dev/null /bin/sh -lc "printf %s \"$PROMPT_TEXT\" | codex"
+            script -q -c "printf %s \"$PROMPT_TEXT\" | codex" /dev/null
             CODEX_EXIT_CODE=$?
         fi
         set -e
