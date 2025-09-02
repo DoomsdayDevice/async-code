@@ -294,6 +294,25 @@ export class ApiService {
         return data;
     }
 
+    static async retryTask(userId: string, taskId: number, tokens: { github_token?: string; gitlab_token?: string } = {}): Promise<{ task_id: number }> {
+        const response = await fetch(`${API_BASE}/retry-task/${taskId}`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                ...getUserIdHeader(userId),
+            },
+            body: JSON.stringify(tokens),
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(errText || "Failed to retry task");
+        }
+
+        const data = await response.json();
+        return data;
+    }
+
     static async validateToken({
         githubToken,
         gitlabToken,

@@ -9,6 +9,7 @@ import random
 from datetime import datetime
 from database import DatabaseOperations
 import fcntl
+import base64
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -16,6 +17,54 @@ logger = logging.getLogger(__name__)
 
 # Docker client
 docker_client = docker.from_env()
+
+def write_task_logs(task_id: int, model_cli: str, logs_content: str) -> None:
+    """Persist container logs for a task under .data/logs.
+
+    Tries these locations in order:
+      1) $APP_DATA_DIR/logs (if APP_DATA_DIR is set)
+      2) /app/.data/logs (Docker backend container)
+      3) <repo>/server/.data/logs (local dev running python main.py)
+      4) CWD fallback: ./server/.data/logs
+
+    Logs are appended to allow multiple runs/retries for the same task id.
+    """
+    try:
+        candidates = []
+        app_data_env = os.getenv('APP_DATA_DIR')
+        if app_data_env:
+            candidates.append(os.path.join(app_data_env, 'logs'))
+        candidates.append('/app/.data/logs')
+        # Resolve repo/server path from this file location
+        server_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        candidates.append(os.path.join(server_dir, '.data', 'logs'))
+        # CWD fallback
+        candidates.append(os.path.join(os.getcwd(), 'server', '.data', 'logs'))
+
+        logs_dir = None
+        last_err = None
+        for candidate in candidates:
+            try:
+                os.makedirs(candidate, exist_ok=True)
+                logs_dir = candidate
+                break
+            except Exception as e:
+                last_err = e
+                continue
+
+        if not logs_dir:
+            raise last_err or Exception('No writable logs directory found')
+
+        file_path = os.path.join(logs_dir, f"task-{task_id}.log")
+        timestamp = datetime.now().isoformat()
+        header = f"\n\n===== {timestamp} {model_cli.upper()} CONTAINER LOGS =====\n"
+        with open(file_path, 'a', encoding='utf-8') as f:
+            f.write(header)
+            f.write(logs_content or '')
+            if not logs_content or not logs_content.endswith('\n'):
+                f.write('\n')
+    except Exception as e:
+        logger.warning(f"⚠️  Failed to write logs for task {task_id}: {e}")
 
 def cleanup_orphaned_containers():
     """Clean up orphaned AI code task containers aggressively"""
@@ -162,15 +211,16 @@ def _run_ai_code_task_v2_internal(task_id: int, user_id: str, github_token: str)
                 claude_env.update(claude_config['env'])
             env_vars.update(claude_env)
         elif model_cli == 'codex':
-            # Start with default Codex environment
+            # Базовые переменные окружения для полностью неинтерактивного режима Codex
             codex_env = {
                 'OPENAI_API_KEY': os.getenv('OPENAI_API_KEY'),
-                'OPENAI_NONINTERACTIVE': '1',  # Custom flag for OpenAI tools
-                'CODEX_QUIET_MODE': '1',  # Official Codex non-interactive flag
-                'CODEX_UNSAFE_ALLOW_NO_SANDBOX': '1',  # Disable Codex internal sandboxing to prevent Docker conflicts
-                'CODEX_DISABLE_SANDBOX': '1',  # Alternative sandbox disable flag
-                'CODEX_NO_SANDBOX': '1',  # Another potential sandbox disable flag
-                'TERM': 'xterm'  # Provide reasonable TERM for TTY
+                'OPENAI_NONINTERACTIVE': '1',
+                'CODEX_QUIET_MODE': '1',
+                'CODEX_UNSAFE_ALLOW_NO_SANDBOX': '1',
+                'CODEX_DISABLE_SANDBOX': '1',
+                'CODEX_NO_SANDBOX': '1',
+                'NODE_NO_READLINE': '1',
+                'TERM': 'dumb'  # Принудительно «тупой» терминал без TTY-фич
             }
             # Merge with user's custom Codex environment variables
             codex_config = user_preferences.get('codex', {})
@@ -239,304 +289,38 @@ def _run_ai_code_task_v2_internal(task_id: int, user_id: str, github_token: str)
             else:
                 logger.info(f"ℹ️  No meaningful Claude credentials found in user preferences for task {task_id} - skipping credentials setup (credentials: {credentials_json})")
         
-        # Create the command to run in container (v2 function)
-        container_command = f'''
+        # Create the command to run in container by inlining the external script
+        script_path = os.path.join(os.path.dirname(__file__), 'container_script.sh')
+        try:
+            with open(script_path, 'r', encoding='utf-8') as f:
+                container_script_source = f.read()
+        except Exception as e:
+            raise Exception(f"Failed to read container script at {script_path}: {e}")
+
+        # Base64-encode dynamic content to avoid quoting/escaping issues
+        prompt_b64 = base64.b64encode(prompt.encode('utf-8')).decode('ascii') if prompt else ''
+        credentials_b64 = base64.b64encode(credentials_content.encode('utf-8')).decode('ascii') if credentials_content else ''
+
+        # Provide environment variables consumed by the script
+        env_vars.update({
+            'REPO_URL': task['repo_url'],
+            'TARGET_BRANCH': task['target_branch'],
+            'GIT_AUTH_TOKEN': github_token,
+            'MODEL_CLI': model_cli,
+            'PROMPT_B64': prompt_b64,
+            'CLAUDE_CREDENTIALS_B64': credentials_b64
+        })
+
+        # Create container command that writes the script and executes it
+        container_command = f"""
 set -e
-echo "Setting up repository..."
-
-# Clone repository with authentication
-# Подставляем токен в URL GitHub или GitLab
-if echo "{task['repo_url']}" | grep -q "gitlab.com"; then
-    # GitLab рекомендует использовать oauth2:<token>@gitlab.com
-    REPO_URL_WITH_TOKEN=$(echo "{task['repo_url']}" | sed "s|https://gitlab.com/|https://oauth2:{github_token}@gitlab.com/|")
-else
-    REPO_URL_WITH_TOKEN=$(echo "{task['repo_url']}" | sed "s|https://github.com/|https://{github_token}@github.com/|")
-fi
-git clone -b {task['target_branch']} "$REPO_URL_WITH_TOKEN" /workspace/repo
-cd /workspace/repo
-
-# Configure git
-git config user.email "claude-code@automation.com"
-git config user.name "Claude Code Automation"
-
-# We'll extract the patch instead of pushing directly
-echo "📋 Will extract changes as patch for later PR creation..."
-
-echo "Starting {model_cli.upper()} Code with prompt..."
-
-# Create a temporary file with the prompt using heredoc for proper handling
-cat << 'PROMPT_EOF' > /tmp/prompt.txt
-{prompt}
-PROMPT_EOF
-
-# Setup Claude credentials for Claude tasks
-if [ "{model_cli}" = "claude" ]; then
-    echo "Setting up Claude credentials..."
-    
-    # Create ~/.claude directory if it doesn't exist
-    mkdir -p ~/.claude
-    
-    # Write credentials content directly to file
-    if [ ! -z "{escaped_credentials}" ]; then
-        echo "📋 Writing credentials to ~/.claude/.credentials.json"
-        cat << 'CREDENTIALS_EOF' > ~/.claude/.credentials.json
-{credentials_content}
-CREDENTIALS_EOF
-        echo "✅ Claude credentials configured"
-    else
-        echo "⚠️  No credentials content available"
-    fi
-fi
-
-# Check which CLI tool to use based on model selection
-if [ "{model_cli}" = "codex" ]; then
-    echo "Using Codex (OpenAI Codex) CLI..."
-    
-    # Set environment variables for non-interactive mode
-    export CODEX_QUIET_MODE=1
-    export CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
-    export CODEX_DISABLE_SANDBOX=1
-    export CODEX_NO_SANDBOX=1
-    
-    # Debug: Verify environment variables are set
-    echo "=== CODEX DEBUG INFO ==="
-    echo "CODEX_QUIET_MODE: $CODEX_QUIET_MODE"
-    echo "CODEX_UNSAFE_ALLOW_NO_SANDBOX: $CODEX_UNSAFE_ALLOW_NO_SANDBOX"
-    echo "OPENAI_API_KEY: $(echo $OPENAI_API_KEY | head -c 8)..."
-    echo "Invoking Codex CLI directly (TTY allocated at container level)"
-    echo "======================="
-    # Ensure a reasonable TERM for tools that check TTY capabilities
-    export TERM=xterm
-    
-    # Read the prompt from file
-    PROMPT_TEXT=$(cat /tmp/prompt.txt)
-    
-    # Check for codex installation
-    if [ -f /usr/local/bin/codex ]; then
-        echo "Found codex at /usr/local/bin/codex"
-        echo "Running Codex in non-interactive mode..."
-        # Temporarily allow capturing non-zero exit for retries
-        set +e
-        /usr/local/bin/codex "$PROMPT_TEXT"
-        CODEX_EXIT_CODE=$?
-        if [ $CODEX_EXIT_CODE -ne 0 ]; then
-            echo "First invocation failed ($CODEX_EXIT_CODE), trying stdin pipe..."
-            printf %s "$PROMPT_TEXT" | /usr/local/bin/codex
-            CODEX_EXIT_CODE=$?
-        fi
-        set -e
-        echo "Codex finished with exit code: $CODEX_EXIT_CODE"
-        if [ $CODEX_EXIT_CODE -ne 0 ]; then
-            echo "ERROR: Codex failed with exit code $CODEX_EXIT_CODE"
-            exit $CODEX_EXIT_CODE
-        fi
-        
-        echo "✅ Codex completed successfully"
-    elif command -v codex >/dev/null 2>&1; then
-        echo "Using codex from PATH..."
-        echo "Running Codex in non-interactive mode..."
-        set +e
-        codex "$PROMPT_TEXT"
-        CODEX_EXIT_CODE=$?
-        if [ $CODEX_EXIT_CODE -ne 0 ]; then
-            echo "First invocation failed ($CODEX_EXIT_CODE), trying stdin pipe..."
-            printf %s "$PROMPT_TEXT" | codex
-            CODEX_EXIT_CODE=$?
-        fi
-        set -e
-        echo "Codex finished with exit code: $CODEX_EXIT_CODE"
-        if [ $CODEX_EXIT_CODE -ne 0 ]; then
-            echo "ERROR: Codex failed with exit code $CODEX_EXIT_CODE"
-            exit $CODEX_EXIT_CODE
-        fi
-        
-        echo "✅ Codex completed successfully"
-    else
-        echo "ERROR: codex command not found anywhere"
-        echo "Please ensure Codex CLI is installed in the container"
-        exit 1
-    fi
-    
-else
-    echo "Using Claude CLI..."
-    
-    # Try different ways to invoke claude
-    echo "Checking claude installation..."
-
-if [ -f /usr/local/bin/claude ]; then
-    echo "Found claude at /usr/local/bin/claude"
-    echo "File type:"
-    file /usr/local/bin/claude || echo "file command not available"
-    echo "First few lines:"
-    head -5 /usr/local/bin/claude || echo "head command failed"
-    
-    # Check if it's a shell script
-    if head -1 /usr/local/bin/claude | grep -Eq "#!/bin/sh|#!/bin/bash|#!/usr/bin/env bash"; then
-        echo "Detected shell script, running with sh..."
-        sh /usr/local/bin/claude < /tmp/prompt.txt
-    # Check if it's a Node.js script (including env -S node pattern)
-    elif head -1 /usr/local/bin/claude | grep -Eq "#!/usr/bin/env.*node|#!/usr/bin/node"; then
-        echo "Detected Node.js script..."
-        if command -v node >/dev/null 2>&1; then
-            echo "Running with node..."
-            # Try different approaches for Claude CLI
-            
-            # First try with --help to see available options
-            echo "Checking claude options..."
-            node /usr/local/bin/claude --help 2>/dev/null || echo "Help not available"
-            
-            # Try non-interactive approaches
-            echo "Attempting non-interactive execution..."
-            
-            # Method 1: Use the official --print flag for non-interactive mode
-            echo "Using --print flag for non-interactive mode..."
-            cat /tmp/prompt.txt | node /usr/local/bin/claude --print --allowedTools "Edit,Bash"
-            CLAUDE_EXIT_CODE=$?
-            echo "Claude Code finished with exit code: $CLAUDE_EXIT_CODE"
-            
-            if [ $CLAUDE_EXIT_CODE -ne 0 ]; then
-                echo "ERROR: Claude Code failed with exit code $CLAUDE_EXIT_CODE"
-                exit $CLAUDE_EXIT_CODE
-            fi
-            
-            echo "✅ Claude Code completed successfully"
-        else
-            echo "Node.js not found, trying direct execution..."
-            /usr/local/bin/claude < /tmp/prompt.txt
-            CLAUDE_EXIT_CODE=$?
-            echo "Claude Code finished with exit code: $CLAUDE_EXIT_CODE"
-            if [ $CLAUDE_EXIT_CODE -ne 0 ]; then
-                echo "ERROR: Claude Code failed with exit code $CLAUDE_EXIT_CODE"
-                exit $CLAUDE_EXIT_CODE
-            fi
-            echo "✅ Claude Code completed successfully"
-        fi
-    # Check if it's a Python script
-    elif head -1 /usr/local/bin/claude | grep -Eq "#!/usr/bin/env python|#!/usr/bin/python"; then
-        echo "Detected Python script..."
-        if command -v python3 >/dev/null 2>&1; then
-            echo "Running with python3..."
-            python3 /usr/local/bin/claude < /tmp/prompt.txt
-            CLAUDE_EXIT_CODE=$?
-        elif command -v python >/dev/null 2>&1; then
-            echo "Running with python..."
-            python /usr/local/bin/claude < /tmp/prompt.txt
-            CLAUDE_EXIT_CODE=$?
-        else
-            echo "Python not found, trying direct execution..."
-            /usr/local/bin/claude < /tmp/prompt.txt
-            CLAUDE_EXIT_CODE=$?
-        fi
-        echo "Claude Code finished with exit code: $CLAUDE_EXIT_CODE"
-        if [ $CLAUDE_EXIT_CODE -ne 0 ]; then
-            echo "ERROR: Claude Code failed with exit code $CLAUDE_EXIT_CODE"
-            exit $CLAUDE_EXIT_CODE
-        fi
-        echo "✅ Claude Code completed successfully"
-    else
-        echo "Unknown script type, trying direct execution..."
-        /usr/local/bin/claude < /tmp/prompt.txt
-        CLAUDE_EXIT_CODE=$?
-        echo "Claude Code finished with exit code: $CLAUDE_EXIT_CODE"
-        if [ $CLAUDE_EXIT_CODE -ne 0 ]; then
-            echo "ERROR: Claude Code failed with exit code $CLAUDE_EXIT_CODE"
-            exit $CLAUDE_EXIT_CODE
-        fi
-        echo "✅ Claude Code completed successfully"
-    fi
-elif command -v claude >/dev/null 2>&1; then
-    echo "Using claude from PATH..."
-    CLAUDE_PATH=$(which claude)
-    echo "Claude found at: $CLAUDE_PATH"
-    claude < /tmp/prompt.txt
-    CLAUDE_EXIT_CODE=$?
-    echo "Claude Code finished with exit code: $CLAUDE_EXIT_CODE"
-    if [ $CLAUDE_EXIT_CODE -ne 0 ]; then
-        echo "ERROR: Claude Code failed with exit code $CLAUDE_EXIT_CODE"
-        exit $CLAUDE_EXIT_CODE
-    fi
-    echo "✅ Claude Code completed successfully"
-else
-    echo "ERROR: claude command not found anywhere"
-    echo "Checking available interpreters:"
-    which python3 2>/dev/null && echo "python3: available" || echo "python3: not found"
-    which python 2>/dev/null && echo "python: available" || echo "python: not found"
-    which node 2>/dev/null && echo "node: available" || echo "node: not found"
-    which sh 2>/dev/null && echo "sh: available" || echo "sh: not found"
-    exit 1
-fi
-
-fi  # End of model selection (claude vs codex)
-
-# Check if there are changes
-if git diff --quiet; then
-    echo "ℹ️  No changes made by {model_cli.upper()} - this is a valid outcome"
-    echo "The AI tool ran successfully but decided not to make changes"
-    
-    # Create empty patch and diff for consistency
-    echo "=== PATCH START ==="
-    echo "No changes were made"
-    echo "=== PATCH END ==="
-    
-    echo "=== GIT DIFF START ==="
-    echo "No changes were made"
-    echo "=== GIT DIFF END ==="
-    
-    echo "=== CHANGED FILES START ==="
-    echo "No files were changed"
-    echo "=== CHANGED FILES END ==="
-    
-    echo "=== FILE CHANGES START ==="
-    echo "No file changes to display"
-    echo "=== FILE CHANGES END ==="
-    
-    # Set empty commit hash
-    echo "COMMIT_HASH="
-else
-    # Commit changes locally
-    git add .
-    git commit -m "{model_cli.capitalize()}: {escaped_prompt[:100]}"
-
-    # Get commit info
-    COMMIT_HASH=$(git rev-parse HEAD)
-    echo "COMMIT_HASH=$COMMIT_HASH"
-
-    # Generate patch file for later application
-    echo "📦 Generating patch file..."
-    git format-patch HEAD~1 --stdout > /tmp/changes.patch
-    echo "=== PATCH START ==="
-    cat /tmp/changes.patch
-    echo "=== PATCH END ==="
-
-    # Also get the diff for display
-    echo "=== GIT DIFF START ==="
-    git diff HEAD~1 HEAD
-    echo "=== GIT DIFF END ==="
-
-    # List changed files for reference
-    echo "=== CHANGED FILES START ==="
-    git diff --name-only HEAD~1 HEAD
-    echo "=== CHANGED FILES END ==="
-
-    # Get before/after content for merge view
-    echo "=== FILE CHANGES START ==="
-    for file in $(git diff --name-only HEAD~1 HEAD); do
-        echo "FILE: $file"
-        echo "=== BEFORE START ==="
-        git show HEAD~1:"$file" 2>/dev/null || echo "FILE_NOT_EXISTS"
-        echo "=== BEFORE END ==="
-        echo "=== AFTER START ==="
-        cat "$file" 2>/dev/null || echo "FILE_DELETED"
-        echo "=== AFTER END ==="
-        echo "=== FILE END ==="
-    done
-    echo "=== FILE CHANGES END ==="
-fi
-
-# Explicitly exit with success code
-echo "Container work completed successfully"
-exit 0
-'''
+SCRIPT_PATH=/tmp/container_script.sh
+cat > $SCRIPT_PATH <<'SCRIPT_EOF'
+{container_script_source}
+SCRIPT_EOF
+chmod +x $SCRIPT_PATH
+bash $SCRIPT_PATH
+"""
         
         # Run container with unified AI Code tools (supports both Claude and Codex)
         logger.info(f"🐳 Creating Docker container for task {task_id} using {container_image} (model: {model_name})")
@@ -572,9 +356,9 @@ exit 0
                 'privileged': True,            # Run in fully privileged mode
                 'pid_mode': 'host'            # Share host PID namespace
             })
-            # Allocate TTY and open stdin for Codex to satisfy /dev/tty access
-            container_kwargs['tty'] = True
-            container_kwargs['stdin_open'] = True
+            # Не выделяем TTY для Codex, чтобы сохранить полностью неинтерактивный режим
+            container_kwargs['tty'] = False
+            container_kwargs['stdin_open'] = False
         
         # Retry container creation with enhanced conflict handling
         container = None
@@ -634,9 +418,13 @@ exit 0
                 logs = container.logs().decode('utf-8')
                 logger.info(f"📝 Retrieved {len(logs)} characters of logs")
                 logger.info(f"🔍 First 200 chars of logs: {logs[:200]}...")
+                # Persist logs for this task
+                write_task_logs(task_id, model_cli, logs)
             except Exception as log_error:
                 logger.warning(f"❌ Failed to get container logs: {log_error}")
                 logs = f"Failed to retrieve logs: {log_error}"
+                # Persist at least the error info
+                write_task_logs(task_id, model_cli, logs)
             
             # Clean up container after getting logs
             try:
@@ -668,8 +456,10 @@ exit 0
             # Try to get logs even on error
             try:
                 logs = container.logs().decode('utf-8')
+                write_task_logs(task_id, model_cli, logs)
             except Exception as log_error:
                 logs = f"Container failed and logs unavailable: {log_error}"
+                write_task_logs(task_id, model_cli, logs)
             
             # Try to clean up container on error
             try:
@@ -771,17 +561,27 @@ exit 0
                 elif capturing_diff:
                     git_diff.append(line)
                 elif capturing_files:
-                    if line.strip():  # Only add non-empty lines
-                        changed_files.append(line.strip())
+                    # Добавляем только непустые строки и игнорируем служебное сообщение скрипта
+                    stripped = line.strip()
+                    if stripped and stripped != 'No files were changed':
+                        changed_files.append(stripped)
             
+            # Нормализуем служебное сообщение "No changes were made", чтобы оно не считалось дифом
+            git_patch_content = '\n'.join(git_patch).strip()
+            git_diff_content = '\n'.join(git_diff).strip()
+            if git_patch_content == 'No changes were made':
+                git_patch_content = ''
+            if git_diff_content == 'No changes were made':
+                git_diff_content = ''
+
             logger.info(f"🔄 Updating task status to COMPLETED...")
-            
+
             # Update task in database
             DatabaseOperations.update_task(task_id, user_id, {
                 'status': 'completed',
                 'commit_hash': commit_hash,
-                'git_diff': '\n'.join(git_diff),
-                'git_patch': '\n'.join(git_patch),
+                'git_diff': git_diff_content,
+                'git_patch': git_patch_content,
                 'changed_files': changed_files,
                 'execution_metadata': {
                     'file_changes': file_changes,
@@ -789,7 +589,7 @@ exit 0
                 }
             })
             
-            logger.info(f"🎉 {model_name} Task {task_id} completed successfully! Commit: {commit_hash[:8] if commit_hash else 'N/A'}, Diff lines: {len(git_diff)}")
+            logger.info(f"🎉 {model_name} Task {task_id} completed successfully! Commit: {commit_hash[:8] if commit_hash else 'N/A'}, Diff lines: {len(git_diff_content.splitlines())}")
             
         else:
             logger.error(f"❌ Container exited with error code {result['StatusCode']}")

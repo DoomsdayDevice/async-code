@@ -11,9 +11,9 @@ services:
       - NODE_ENV=development
     env_file:
       - ./async-code-web/.env
-    volumes:
-      - ./async-code-web:/app
-      - /app/node_modules
+    # volumes:
+    #   - ./async-code-web:/app
+
     depends_on:
       - backend
 
@@ -29,11 +29,12 @@ services:
     env_file:
       - ./server/.env
     volumes:
-      - ./server:/app
+      # - ./server:/app
       - ./server/.data:/app/.data
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - claude-automation-build
+      - codex-automation-build
 
   claude-automation-build:
     build:
@@ -42,6 +43,15 @@ services:
       tags:
         - claude-code-automation:latest
     command: ["echo", "Claude Code automation image built"]
+
+  # Сервис-сборщик образа для Codex CLI, чтобы backend не пытался тянуть его из реестра
+  codex-automation-build:
+    build:
+      context: .
+      dockerfile: Dockerfile.codex-automation
+      tags:
+        - codex-automation:latest
+    command: ["echo", "Codex automation image built"]
 
 volumes:
   docker_socket:

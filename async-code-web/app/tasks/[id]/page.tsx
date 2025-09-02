@@ -49,6 +49,7 @@ export default function TaskDetailPage() {
     const [githubToken, setGithubToken] = useState("");
     const [gitlabToken, setGitlabToken] = useState("");
     const [creatingPR, setCreatingPR] = useState(false);
+    const [retrying, setRetrying] = useState(false);
 
     useEffect(() => {
         if (typeof window !== "undefined") {
@@ -276,6 +277,36 @@ export default function TaskDetailPage() {
                                             : "Create PR"}
                                     </Button>
                                 ))}
+                            {task.status === "failed" && (
+                                <Button
+                                    onClick={async () => {
+                                        if (!user?.id) return;
+                                        try {
+                                            setRetrying(true);
+                                            toast.loading("Retrying task...");
+                                            await ApiService.retryTask(user.id, task.id, {
+                                                github_token: githubToken,
+                                                gitlab_token: gitlabToken,
+                                            });
+                                            toast.dismiss();
+                                            toast.success("Task retry started");
+                                            // Optimistically set status to pending to trigger polling
+                                            setTask((prev) => (prev ? { ...prev, status: "pending" } : prev));
+                                        } catch (e) {
+                                            toast.dismiss();
+                                            toast.error(`Failed to retry: ${e}`);
+                                        } finally {
+                                            setRetrying(false);
+                                        }
+                                    }}
+                                    disabled={retrying}
+                                    variant="outline"
+                                    className="gap-2"
+                                >
+                                    {retrying ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertCircle className="w-4 h-4" />}
+                                    {retrying ? "Retrying..." : "Retry"}
+                                </Button>
+                            )}
                         </div>
                     </div>
                 </header>

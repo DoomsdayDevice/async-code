@@ -88,6 +88,70 @@ def start_task():
         logger.error(f"Error starting task: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@tasks_bp.route('/retry-task/<int:task_id>', methods=['POST'])
+def retry_task(task_id):
+    """Повторный запуск задачи, если она завершилась с ошибкой"""
+    try:
+        data = request.get_json() or {}
+        user_id = request.headers.get('X-User-ID')
+
+        if not user_id:
+            return jsonify({'error': 'User ID required'}), 400
+
+        task = DatabaseOperations.get_task_by_id(task_id, user_id)
+        if not task:
+            return jsonify({'error': 'Task not found'}), 404
+
+        if task.get('status') != TaskStatus.FAILED:
+            return jsonify({'error': 'Task is not in failed state'}), 400
+
+        # Определяем провайдера и токен
+        github_token = data.get('github_token')
+        gitlab_token = data.get('gitlab_token')
+        repo_url = task.get('repo_url') or ''
+        is_gitlab = 'gitlab.com' in repo_url
+
+        if is_gitlab:
+            if not gitlab_token and not github_token:
+                return jsonify({'error': 'gitlab_token is required for GitLab repositories'}), 400
+            effective_token = gitlab_token or github_token
+        else:
+            if not github_token:
+                return jsonify({'error': 'github_token is required for GitHub repositories'}), 400
+            effective_token = github_token
+
+        # Сбрасываем поля и переводим задачу в pending
+        reset_updates = {
+            'status': TaskStatus.PENDING,
+            'error': None,
+            'commit_hash': None,
+            'git_diff': None,
+            'git_patch': None,
+            'changed_files': [],
+            'pr_branch': None,
+            'pr_number': None,
+            'pr_url': None,
+            'container_id': None,
+            'started_at': None,
+            'completed_at': None,
+        }
+        DatabaseOperations.update_task(task_id, user_id, reset_updates)
+
+        # Запускаем задачу в фоне
+        thread = threading.Thread(target=run_ai_code_task_v2, args=(task_id, user_id, effective_token))
+        thread.daemon = True
+        thread.start()
+
+        return jsonify({
+            'status': 'success',
+            'task_id': task_id,
+            'message': 'Task retry started successfully'
+        })
+
+    except Exception as e:
+        logger.error(f"Error retrying task {task_id}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @tasks_bp.route('/task-status/<int:task_id>', methods=['GET'])
 def get_task_status(task_id):
     """Get the status of a specific task"""

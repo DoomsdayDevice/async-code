@@ -26,8 +26,8 @@ echo "🎉 Sandbox environment is ready!"
 # Start the application (adjust command based on your package.json scripts)
 if npm run dev >/dev/null 2>&1; then
     npm run dev
-elif npm start >/dev/null 2>&1; then
-    npm start
+elif npm start:prod >/dev/null 2>&1; then
+    npm start:prod
 else
     echo "⚠️  No dev or start script found in package.json"
     echo "🔧 Starting Node.js directly..."

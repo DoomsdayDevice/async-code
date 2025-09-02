@@ -182,3 +182,6 @@ tasks_backup.json
 .vscode/
 yarn.lock
 server/.data/
+
+# different per architecture
+/async-code-web/package-lock.json
