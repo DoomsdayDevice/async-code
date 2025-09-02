@@ -304,6 +304,8 @@ if [ "{model_cli}" = "codex" ]; then
     echo "OPENAI_API_KEY: $(echo $OPENAI_API_KEY | head -c 8)..."
     echo "Invoking Codex CLI via pseudo-TTY wrapper (script)"
     echo "======================="
+    # Ensure a reasonable TERM for tools that check TTY capabilities
+    export TERM=xterm
     
     # Read the prompt from file
     PROMPT_TEXT=$(cat /tmp/prompt.txt)
@@ -314,11 +316,12 @@ if [ "{model_cli}" = "codex" ]; then
         echo "Running Codex in non-interactive mode..."
         # Temporarily allow capturing non-zero exit for retries
         set +e
-        script -qec "/usr/local/bin/codex \"$PROMPT_TEXT\"" /dev/null
+        # Use file-first syntax: script [options] FILE COMMAND ARGS...
+        script -q /dev/null /bin/sh -lc "/usr/local/bin/codex \"$PROMPT_TEXT\""
         CODEX_EXIT_CODE=$?
         if [ $CODEX_EXIT_CODE -ne 0 ]; then
             echo "First invocation failed ($CODEX_EXIT_CODE), trying stdin pipe..."
-            script -qec "echo \"$PROMPT_TEXT\" | /usr/local/bin/codex" /dev/null
+            script -q /dev/null /bin/sh -lc "printf %s \"$PROMPT_TEXT\" | /usr/local/bin/codex"
             CODEX_EXIT_CODE=$?
         fi
         set -e
@@ -333,11 +336,11 @@ if [ "{model_cli}" = "codex" ]; then
         echo "Using codex from PATH..."
         echo "Running Codex in non-interactive mode..."
         set +e
-        script -qec "codex \"$PROMPT_TEXT\"" /dev/null
+        script -q /dev/null /bin/sh -lc "codex \"$PROMPT_TEXT\""
         CODEX_EXIT_CODE=$?
         if [ $CODEX_EXIT_CODE -ne 0 ]; then
             echo "First invocation failed ($CODEX_EXIT_CODE), trying stdin pipe..."
-            script -qec "echo \"$PROMPT_TEXT\" | codex" /dev/null
+            script -q /dev/null /bin/sh -lc "printf %s \"$PROMPT_TEXT\" | codex"
             CODEX_EXIT_CODE=$?
         fi
         set -e
