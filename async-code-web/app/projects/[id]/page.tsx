@@ -162,16 +162,27 @@ export default function ProjectSettingsPage() {
                         </CardHeader>
                         <CardContent className="space-y-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium" htmlFor="name">Name</label>
+                                <label className="text-sm font-medium" htmlFor="name">
+                                    Name
+                                </label>
                                 <Input id="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium" htmlFor="repo_url">Repository URL</label>
+                                <label className="text-sm font-medium" htmlFor="repo_url">
+                                    Repository URL
+                                </label>
                                 <Input id="repo_url" value={form.repo_url} onChange={(e) => setForm({ ...form, repo_url: e.target.value })} />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium" htmlFor="description">Description</label>
-                                <Textarea id="description" rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                                <label className="text-sm font-medium" htmlFor="description">
+                                    Description
+                                </label>
+                                <Textarea
+                                    id="description"
+                                    rows={4}
+                                    value={form.description}
+                                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                                />
                             </div>
                         </CardContent>
                     </Card>
@@ -180,5 +191,3 @@ export default function ProjectSettingsPage() {
         </ProtectedRoute>
     );
 }
-
-
