@@ -33,6 +33,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ProtectedRoute } from "@/components/protected-route";
+import { useSearchParams } from "next/navigation";
 import { TaskStatusBadge } from "@/components/task-status-badge";
 import { PRStatusBadge } from "@/components/pr-status-badge";
 import { useAuth } from "@/contexts/auth-context";
@@ -48,6 +49,7 @@ interface TaskWithProject extends Task {
 
 export default function Home() {
     const { user, signOut } = useAuth();
+    const searchParams = useSearchParams();
     const [prompt, setPrompt] = useState("");
     const [selectedProject, setSelectedProject] = useState<string>("");
     const [branch, setBranch] = useState("main");
@@ -83,6 +85,30 @@ export default function Home() {
             loadTasks();
         }
     }, [user?.id]);
+
+    // Auto-select project and preload last-used settings from URL (?project=<id>)
+    useEffect(() => {
+        const projectParam = searchParams?.get("project");
+        if (!projectParam || !projects || projects.length === 0) return;
+        const project = projects.find((p) => p.id.toString() === projectParam);
+        if (!project) return;
+        setSelectedProject(projectParam);
+        const lastAgent = (project.settings || {}).last_used_agent as string | undefined;
+        const lastBranch = (project.settings || {}).last_used_branch as string | undefined;
+        if (lastAgent === "claude" || lastAgent === "codex") setModel(lastAgent);
+        if (lastBranch && typeof lastBranch === "string" && lastBranch.trim().length > 0) setBranch(lastBranch);
+    }, [projects, searchParams]);
+
+    // When user manually changes selected project, preload that project's last-used settings
+    useEffect(() => {
+        if (!selectedProject) return;
+        const project = projects.find((p) => p.id.toString() === selectedProject);
+        if (!project) return;
+        const lastAgent = (project.settings || {}).last_used_agent as string | undefined;
+        const lastBranch = (project.settings || {}).last_used_branch as string | undefined;
+        if (lastAgent === "claude" || lastAgent === "codex") setModel(lastAgent);
+        if (lastBranch && typeof lastBranch === "string" && lastBranch.trim().length > 0) setBranch(lastBranch);
+    }, [selectedProject]);
 
     // Save tokens to localStorage whenever they change
     useEffect(() => {
@@ -254,6 +280,25 @@ export default function Home() {
 
             setTasks((prev) => [newTask, ...prev]);
             setPrompt("");
+
+            // Persist last-used agent and branch to the project's settings
+            if (projectId) {
+                try {
+                    const currentProject = projects.find((p) => p.id === projectId);
+                    const existingSettings = (currentProject?.settings as Record<string, any>) || {};
+                    const updatedSettings = {
+                        ...existingSettings,
+                        last_used_agent: model,
+                        last_used_branch: branch,
+                    };
+                    const updated = await ApiService.updateProject(user.id, projectId, { settings: updatedSettings });
+                    // Update local projects state to reflect persisted settings
+                    setProjects((prev) => prev.map((p) => (p.id === projectId ? { ...p, settings: updated.settings } : p)));
+                } catch (e) {
+                    // Non-blocking failure
+                    console.error("Failed to persist last-used settings:", e);
+                }
+            }
 
             // Show success notification
             setNotificationMessage(`🚀 Task #${response.task_id} started successfully!`);
