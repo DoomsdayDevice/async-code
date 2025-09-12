@@ -6,7 +6,7 @@ services:
       context: ./async-code-web
       dockerfile: Dockerfile
     ports:
-      - "9020:3000"
+      - "${FRONTEND_PORT:-9020}:3000"
     environment:
       - NODE_ENV=development
     env_file:
@@ -22,7 +22,7 @@ services:
       context: ./server
       dockerfile: Dockerfile
     ports:
-      - "9010:5000"
+      - "${BACKEND_PORT:-9010}:5000"
     environment:
       - FLASK_ENV=development
       - FLASK_DEBUG=True
