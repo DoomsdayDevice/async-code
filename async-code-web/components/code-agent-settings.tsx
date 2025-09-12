@@ -36,7 +36,6 @@ const DEFAULT_CLAUDE_CREDENTIALS = {
 const DEFAULT_CODEX_ENV = {
     OPENAI_API_KEY: "",
     DISABLE_SANDBOX: "yes",
-    CONTINUE_ON_BROWSER: "no",
     // Add other Codex-specific env vars here if needed
 };
 
