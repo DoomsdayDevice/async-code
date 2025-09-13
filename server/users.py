@@ -13,6 +13,8 @@ def get_me():
         if not user_id:
             return jsonify({'error': 'User ID required'}), 400
         user = DatabaseOperations.get_user_by_id(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
         return jsonify({'status': 'success', 'user': user})
     except Exception as e:
         logger.error(f"Error fetching current user: {str(e)}")
@@ -27,6 +29,8 @@ def update_me():
         data = request.get_json() or {}
         # Allow updating profile fields and preferences
         updated = DatabaseOperations.update_user_profile(user_id, data)
+        if not updated:
+            return jsonify({'error': 'User not found'}), 404
         return jsonify({'status': 'success', 'user': updated})
     except Exception as e:
         logger.error(f"Error updating current user: {str(e)}")

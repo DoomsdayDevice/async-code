@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Any
 import json
 import threading
 import sqlite3
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class _LocalSqliteStore:
 
     def _init_schema(self):
         cur = self._conn.cursor()
+        # Базовая схема таблицы пользователей (без уникальности email для совместимости)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
@@ -33,10 +35,26 @@ class _LocalSqliteStore:
                 github_username TEXT,
                 github_token TEXT,
                 preferences TEXT,
+                password_hash TEXT,
                 created_at TEXT,
                 updated_at TEXT
             )
         """)
+        # Добавляем недостающие колонки при апгрейде
+        try:
+            cur.execute("PRAGMA table_info(users)")
+            cols = {row[1] for row in cur.fetchall()}
+            # Добавляем password_hash, если отсутствует
+            if 'password_hash' not in cols:
+                cur.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+            # На новых установках email уже есть; пытаемся создать уникальный индекс на email
+            # Если в БД есть дубликаты, создание индекса упадёт — проглатываем и логируем.
+            try:
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON users(email)")
+            except Exception as e:
+                logger.warning(f"Не удалось создать уникальный индекс на users.email (возможны дубликаты): {e}")
+        except Exception as e:
+            logger.warning(f"Проверка/миграция схемы users завершилась с предупреждением: {e}")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS projects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -290,20 +308,13 @@ class _LocalSqliteStore:
         cur.execute("SELECT * FROM users WHERE id = ?", (user_id,))
         r = cur.fetchone()
         if not r:
-            # Create minimal user on-the-fly for dev mode
-            now = datetime.utcnow().isoformat()
-            cur.execute(
-                "INSERT OR REPLACE INTO users (id, preferences, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                (user_id, self._json_dump({}), now, now),
-            )
-            self._conn.commit()
-            return {'id': user_id, 'preferences': {}}
+            return None
         d = dict(r)
         d['preferences'] = self._json_load(d.get('preferences')) or {}
         return d
 
     def update_user(self, user_id: str, updates: Dict) -> Optional[Dict]:
-        allowed = ['email', 'full_name', 'avatar_url', 'github_username', 'github_token', 'preferences']
+        allowed = ['email', 'full_name', 'avatar_url', 'github_username', 'github_token', 'preferences', 'password_hash']
         set_parts = []
         values: List[Any] = []
         for k in allowed:
@@ -322,6 +333,47 @@ class _LocalSqliteStore:
             cur.execute(sql, tuple(values))
             self._conn.commit()
         return self.get_user_by_id(user_id)
+
+    # Новые операции пользователя
+    def get_user_by_email(self, email: str) -> Optional[Dict]:
+        cur = self._conn.cursor()
+        normalized = (email or '').strip().lower()
+        cur.execute("SELECT * FROM users WHERE lower(email) = ?", (normalized,))
+        r = cur.fetchone()
+        if not r:
+            return None
+        d = dict(r)
+        d['preferences'] = self._json_load(d.get('preferences')) or {}
+        return d
+
+    def create_user(self, user: Dict) -> Dict:
+        with self._lock:
+            now = datetime.utcnow().isoformat()
+            cur = self._conn.cursor()
+            user_id = user.get('id') or str(uuid.uuid4())
+            cur.execute(
+                """
+                INSERT INTO users (id, email, full_name, avatar_url, github_username, github_token, preferences, password_hash, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    (user.get('email') or '').strip().lower() or None,
+                    user.get('full_name'),
+                    user.get('avatar_url'),
+                    user.get('github_username'),
+                    user.get('github_token'),
+                    self._json_dump(user.get('preferences') or {}),
+                    user.get('password_hash'),
+                    now,
+                    now,
+                ),
+            )
+            self._conn.commit()
+            created = self.get_user_by_id(user_id)
+            if not created:
+                raise Exception('Failed to create user')
+            return created
 
 
 # Determine SQLite database file location
@@ -535,6 +587,30 @@ class DatabaseOperations:
         except Exception as e:
             logger.error(f"Error getting user: {e}")
             return None
+
+    @staticmethod
+    def get_user_by_email(email: str) -> Optional[Dict]:
+        """Get user by email"""
+        try:
+            return _local_db.get_user_by_email(email)  # type: ignore[union-attr]
+        except Exception as e:
+            logger.error(f"Error getting user by email: {e}")
+            return None
+
+    @staticmethod
+    def create_user(email: str, full_name: Optional[str], password_hash: str) -> Dict:
+        """Create a new user (email unique enforced at app level)."""
+        try:
+            user_data = {
+                'email': (email or '').strip().lower(),
+                'full_name': (full_name or '').strip() or None,
+                'password_hash': password_hash,
+                'preferences': {},
+            }
+            return _local_db.create_user(user_data)  # type: ignore[union-attr]
+        except Exception as e:
+            logger.error(f"Error creating user: {e}")
+            raise
 
     @staticmethod
     def update_user_profile(user_id: str, updates: Dict) -> Optional[Dict]:
