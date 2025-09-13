@@ -1,6 +1,6 @@
-# Flask Web App
+# Flask Backend (Async Code)
 
-A simple Flask web application with ping API and CORS support.
+Flask API with CORS and Postgres persistence.
 
 ## Setup
 
@@ -9,7 +9,17 @@ A simple Flask web application with ping API and CORS support.
 pip install -r requirements.txt
 ```
 
-2. Run the application:
+2. Configure database (Postgres):
+   Set environment variables in `.env` (see below). Defaults for docker-compose:
+   ```bash
+   DB_HOST=postgres
+   DB_PORT=5432
+   DB_NAME=asynccode
+   DB_USER=asynccode
+   DB_PASSWORD=asynccode
+   ```
+
+3. Run the application:
 ```bash
 python main.py
 ```
@@ -21,9 +31,21 @@ The app will run on `http://localhost:5000`
 - **GET /**: Root endpoint with app info
 - **GET /ping**: Health check endpoint that returns "pong"
 
-## Features
+## Environment
 
-- CORS enabled for all routes
-- JSON responses
-- Health check endpoint
-- Development server with debug mode 
+Create `.env` from `.env.example` and set:
+```bash
+ANTHROPIC_API_KEY=...
+FLASK_ENV=development
+FLASK_DEBUG=True
+PORT=8000
+DOCKER_HOST=unix:///var/run/docker.sock
+
+# Postgres
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=asynccode
+DB_USER=asynccode
+DB_PASSWORD=asynccode
+# Or DATABASE_URL=postgresql://asynccode:asynccode@postgres:5432/asynccode
+```

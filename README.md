@@ -43,7 +43,17 @@ A code agent task management system that provides parallel execution of AI-power
    ```bash
    cp server/.env.example server/.env
    ```
-   Edit `server/.env` and set your `ANTHROPIC_API_KEY`.
+   Edit `server/.env` and set your `ANTHROPIC_API_KEY` and Postgres settings if needed.
+   Default Postgres credentials (for local compose) are:
+   ```bash
+   DB_HOST=postgres
+   DB_PORT=5432
+   DB_NAME=asynccode
+   DB_USER=asynccode
+   DB_PASSWORD=asynccode
+   # Or single URL:
+   # DATABASE_URL=postgresql://asynccode:asynccode@postgres:5432/asynccode
+   ```
 
 3. (Optional) **Frontend environment file**
    ```bash
@@ -58,10 +68,11 @@ A code agent task management system that provides parallel execution of AI-power
 
    - Frontend: http://localhost:9020
    - Backend API: http://localhost:5000
+   - Postgres: localhost:${DB_EXPOSE_PORT:-9432}
 
 ## Storage
 
-The app uses SQLite by default (`server/server_local.db`). No external DB or Supabase is required.
+Backend now uses Postgres by default. A local Postgres 16 instance is provided via docker-compose with bind-mounted data at `./.data` in the repo root.
 
 ## Usage
 
@@ -87,7 +98,7 @@ FLASK_DEBUG=False
 ## Development
 
 ```bash
-# Run all services
+# Run all services (frontend + backend + postgres)
 docker-compose up
 
 # Development mode

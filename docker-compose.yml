@@ -30,11 +30,24 @@ services:
       - ./server/.env
     volumes:
       # - ./server:/app
-      - ./server/.data:/app/.data
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
+      - postgres
       - claude-automation-build
       - codex-automation-build
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: async-code-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${DB_NAME:-asynccode}
+      - POSTGRES_USER=${DB_USER:-asynccode}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-asynccode}
+    ports:
+      - "${DB_EXPOSE_PORT:-9432}:5432"
+    volumes:
+      - ./.data:/var/lib/postgresql/data
 
   claude-automation-build:
     build:
