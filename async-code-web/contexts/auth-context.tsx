@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { ApiService } from "@/lib/api-service";
 
 interface LocalUser {
     id: string;
@@ -12,6 +13,7 @@ interface AuthContextType {
     loading: boolean;
     signIn: (id: string, email?: string) => Promise<void>;
     signInWithEmail: (email: string, password: string) => Promise<void>;
+    registerWithEmail: (email: string, password: string, fullName?: string) => Promise<void>;
     signOut: () => Promise<void>;
 }
 
@@ -32,15 +34,6 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
     const [user, setUser] = useState<LocalUser | null>(null);
     const [loading, setLoading] = useState(true);
-
-    // Хэширование SHA-256 в hex
-    const sha256Hex = async (text: string): Promise<string> => {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(text);
-        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-    };
 
     useEffect(() => {
         // Инициализация локальной аутентификации: читаем сохранённый ID или используем дефолт из env
@@ -77,10 +70,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
 
     const signInWithEmail = async (email: string, password: string) => {
-        // Локальная эмуляция логина: детерминированный userId = sha256(email:password)
+        // Бэкенд-логин: получаем user_id от сервера
         const normalizedEmail = (email || "").trim().toLowerCase();
-        const userId = await sha256Hex(`${normalizedEmail}:${password || ""}`);
-        await signIn(userId, normalizedEmail);
+        const res = await ApiService.login({ email: normalizedEmail, password: password || "" });
+        await signIn(res.user_id, normalizedEmail);
+    };
+
+    const registerWithEmail = async (email: string, password: string, fullName?: string) => {
+        const normalizedEmail = (email || "").trim().toLowerCase();
+        const res = await ApiService.register({ email: normalizedEmail, password: password || "", full_name: fullName });
+        await signIn(res.user_id, normalizedEmail);
     };
 
     const signOut = async () => {
@@ -96,6 +95,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         loading,
         signIn,
         signInWithEmail,
+        registerWithEmail,
         signOut,
     };
 

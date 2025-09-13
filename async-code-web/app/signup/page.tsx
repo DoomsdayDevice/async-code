@@ -9,17 +9,19 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
-export default function SignIn() {
-    const { user, loading, signInWithEmail } = useAuth();
+export default function SignUp() {
+    const { user, loading, registerWithEmail } = useAuth();
     const router = useRouter();
     const params = useSearchParams();
 
     const [email, setEmail] = useState("");
+    const [fullName, setFullName] = useState("");
     const [password, setPassword] = useState("");
+    const [confirm, setConfirm] = useState("");
+    const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
 
     useEffect(() => {
-        // Если уже залогинен — переадресуем
         if (!loading && user?.id) {
             const redirectTo = params.get("redirect") || "/";
             router.replace(redirectTo);
@@ -28,12 +30,33 @@ export default function SignIn() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!email.trim() || !password.trim()) return;
+        setError(null);
+        const trimmedEmail = email.trim();
+        const trimmedPass = password.trim();
+        const trimmedConfirm = confirm.trim();
+        if (!trimmedEmail || !trimmedPass) return;
+        if (trimmedPass.length < 6) {
+            setError("Пароль должен быть не менее 6 символов");
+            return;
+        }
+        if (trimmedPass !== trimmedConfirm) {
+            setError("Пароли не совпадают");
+            return;
+        }
         setSubmitting(true);
         try {
-            await signInWithEmail(email.trim(), password.trim());
+            await registerWithEmail(trimmedEmail, trimmedPass, fullName.trim());
             const redirectTo = params.get("redirect") || "/";
             router.replace(redirectTo);
+        } catch (err: any) {
+            const msg = String(err?.message || err);
+            if (msg.includes("already") || msg.includes("409")) {
+                setError("Email уже зарегистрирован");
+            } else if (msg.toLowerCase().includes("invalid email")) {
+                setError("Некорректный email");
+            } else {
+                setError("Не удалось зарегистрироваться");
+            }
         } finally {
             setSubmitting(false);
         }
@@ -45,11 +68,16 @@ export default function SignIn() {
         <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center px-4">
             <Card className="w-full max-w-md shadow-lg">
                 <CardHeader>
-                    <CardTitle>Sign In</CardTitle>
-                    <CardDescription>Войдите, используя email и пароль.</CardDescription>
+                    <CardTitle>Sign Up</CardTitle>
+                    <CardDescription>Создайте аккаунт, используя email и пароль.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <form onSubmit={handleSubmit} className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="fullName">Full name</Label>
+                            <Input id="fullName" type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jane Doe" />
+                        </div>
+
                         <div className="space-y-2">
                             <Label htmlFor="email">Email</Label>
                             <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required />
@@ -67,11 +95,18 @@ export default function SignIn() {
                             />
                         </div>
 
+                        <div className="space-y-2">
+                            <Label htmlFor="confirm">Confirm Password</Label>
+                            <Input id="confirm" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="••••••••" required />
+                        </div>
+
+                        {error ? <div className="text-sm text-red-600">{error}</div> : null}
+
                         <div className="flex items-center justify-between pt-2">
                             <div className="text-sm text-muted-foreground">
-                                Нет аккаунта?{" "}
-                                <Link className="underline" href="/signup">
-                                    Зарегистрироваться
+                                Уже есть аккаунт?{" "}
+                                <Link className="underline" href="/signin">
+                                    Войти
                                 </Link>
                             </div>
                             <div className="flex gap-2">
@@ -80,8 +115,8 @@ export default function SignIn() {
                                         Отмена
                                     </Button>
                                 </Link>
-                                <Button type="submit" disabled={submitting || !email.trim() || !password.trim()}>
-                                    {submitting ? "Загрузка..." : "Войти"}
+                                <Button type="submit" disabled={submitting || !email.trim() || !password.trim() || !confirm.trim()}>
+                                    {submitting ? "Загрузка..." : "Зарегистрироваться"}
                                 </Button>
                             </div>
                         </div>

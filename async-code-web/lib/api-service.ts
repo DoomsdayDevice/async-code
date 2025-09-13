@@ -54,6 +54,33 @@ function getUserIdHeader(userId?: string): HeadersInit {
 }
 
 export class ApiService {
+    // Auth
+    static async register(params: { email: string; password: string; full_name?: string }): Promise<{ user_id: string; user: any }> {
+        const response = await fetch(`${API_BASE}/auth/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(params),
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || "Failed to register");
+        }
+        return response.json();
+    }
+
+    static async login(params: { email: string; password: string }): Promise<{ user_id: string; user: any }> {
+        const response = await fetch(`${API_BASE}/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(params),
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || "Failed to login");
+        }
+        return response.json();
+    }
+
     // Users
     static async getCurrentUser(userId: string): Promise<any> {
         const response = await fetch(`${API_BASE}/users/me`, {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/contexts/auth-context";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 
 interface ProtectedRouteProps {
@@ -11,13 +11,16 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
     const { user, loading } = useAuth();
     const router = useRouter();
+    const params = useSearchParams();
 
     useEffect(() => {
         // Переадресуем на /signin, если пользователь не аутентифицирован
         if (!loading && !user?.id) {
-            router.replace("/signin");
+            const current = typeof window !== "undefined" ? window.location.pathname + window.location.search : "";
+            const redirect = current && !current.startsWith("/signin") && !current.startsWith("/signup") ? `?redirect=${encodeURIComponent(current)}` : "";
+            router.replace(`/signin${redirect}`);
         }
-    }, [user, loading, router]);
+    }, [user, loading, router, params]);
 
     if (loading) {
         return (
