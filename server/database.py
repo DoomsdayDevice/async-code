@@ -6,6 +6,7 @@ import json
 import uuid
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
+from psycopg.types.json import Json
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +24,18 @@ class _PostgresStore:
         self.pool = ConnectionPool(conninfo=conninfo, min_size=min_size, max_size=max_size, timeout=30)
         self._init_schema()
 
+    @staticmethod
+    def _json(value: Any) -> Any:
+        """Обёртка для Python dict/list в psycopg Json для колонок JSONB."""
+        if value is None:
+            return None
+        return Json(value)
+
     @classmethod
     def from_env(cls) -> "_PostgresStore":
         conninfo = os.getenv("DATABASE_URL")
         if not conninfo:
-            host = os.getenv("DB_HOST", "localhost")
+            host = os.getenv("DB_HOST", "postgres")
             port = int(os.getenv("DB_PORT", "5432"))
             dbname = os.getenv("DB_NAME", "asynccode")
             user = os.getenv("DB_USER", "asynccode")
@@ -85,7 +93,7 @@ class _PostgresStore:
                         project.get('name'),
                         project.get('description'),
                         bool(project.get('is_active', True)),
-                        project.get('settings') or {}
+                        self._json(project.get('settings') or {})
                     ),
                 )
                 row = cur.fetchone()
@@ -128,6 +136,8 @@ class _PostgresStore:
                 v = updates[k]
                 if k == 'is_active':
                     v = bool(v)
+                if k == 'settings':
+                    v = self._json(v)
                 set_parts.append(f"{k} = %s")
                 values.append(v)
         if not set_parts:
@@ -167,8 +177,8 @@ class _PostgresStore:
                         task.get('target_branch'),
                         task.get('agent', 'claude'),
                         task.get('status', 'pending'),
-                        task.get('chat_messages') or [],
-                        task.get('execution_metadata') or {}
+                        self._json(task.get('chat_messages') or []),
+                        self._json(task.get('execution_metadata') or {})
                     ),
                 )
                 row = cur.fetchone()
@@ -220,6 +230,8 @@ class _PostgresStore:
         values: List[Any] = []
         for k, v in updates.items():
             if k in allowed:
+                if k in ('chat_messages', 'execution_metadata', 'changed_files'):
+                    v = self._json(v)
                 set_parts.append(f"{k} = %s")
                 values.append(v)
         if not set_parts:
@@ -264,8 +276,11 @@ class _PostgresStore:
         values: List[Any] = []
         for k in allowed:
             if k in updates:
+                value = updates[k]
+                if k == 'preferences':
+                    value = self._json(value)
                 set_parts.append(f"{k} = %s")
-                values.append(updates[k])
+                values.append(value)
         if not set_parts:
             return self.get_user_by_id(user_id)
         values.append(user_id)
@@ -304,7 +319,7 @@ class _PostgresStore:
                         user.get('avatar_url'),
                         user.get('github_username'),
                         user.get('github_token'),
-                        user.get('preferences') or {},
+                        self._json(user.get('preferences') or {}),
                         user.get('password_hash'),
                     ),
                 )
